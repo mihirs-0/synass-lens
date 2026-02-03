@@ -39,7 +39,7 @@ def compute_loss(
     """
     Compute cross-entropy loss for next-token prediction.
     
-    Only computes loss on the A tokens (where labels != -100).
+    Only computes loss on target tokens (where labels != -100).
     
     Returns:
         (loss tensor for backprop, accuracy float)
@@ -69,8 +69,9 @@ def compute_loss(
     # Compute loss (ignoring -100 positions)
     loss = F.cross_entropy(shift_logits, shift_labels, ignore_index=-100)
     
-    # Compute accuracy on non-ignored positions
-    mask = shift_labels != -100
+    # Compute accuracy on non-ignored positions, excluding EOS
+    eos_id = 2  # tokenizer.eos_token_id (pad=0, bos=1, eos=2, sep=3)
+    mask = (shift_labels != -100) & (shift_labels != eos_id)
     if mask.sum() > 0:
         predictions = shift_logits.argmax(dim=-1)
         correct = (predictions == shift_labels) & mask
