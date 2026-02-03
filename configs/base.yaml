@@ -1,0 +1,79 @@
+# Base configuration for Late Disambiguation Lag experiments
+# All experiments inherit from this and override specific values
+
+# Experiment identification
+experiment:
+  name: "base"
+  seed: 42
+  
+# Data generation
+data:
+  # Number of unique B strings (this is n_pairs_effective)
+  n_unique_b: 1000
+  # K: number of targets per base (bz_to_a: A's per B, az_to_b: A's per B; z redundant)
+  k: 1
+  # Task direction: "bz_to_a" or "az_to_b"
+  task: "bz_to_a"
+  # String lengths
+  b_length: 6
+  a_length: 4
+  z_length: 2  # selector length (log2(K) bits needed, but we use fixed length)
+  # Character vocabulary (excluding special tokens)
+  vocab_chars: "abcdefghijklmnopqrstuvwxyz0123456789"
+  # Probe split (held-out subset for probes/analysis)
+  probe_fraction: 0.1
+  
+# Tokenizer
+tokenizer:
+  # Special tokens
+  pad_token: "<PAD>"
+  bos_token: "<BOS>"
+  eos_token: "<EOS>"
+  sep_token: "<SEP>"
+  
+# Model architecture (HookedTransformer)
+model:
+  n_layers: 4
+  n_heads: 4
+  d_model: 128
+  d_head: 32  # d_model // n_heads
+  d_mlp: 512  # 4 * d_model
+  act_fn: "gelu"
+  # Vocab size will be set dynamically based on tokenizer
+  
+# Training
+training:
+  batch_size: 128
+  learning_rate: 1e-3
+  weight_decay: 0.01
+  max_steps: 20000
+  warmup_steps: 500
+  # Checkpointing
+  checkpoint_every: 200
+  eval_every: 100
+  
+# Probes
+probes:
+  # Which probes to run
+  enabled:
+    - attention_to_z
+    - logit_lens
+    - causal_patching
+    - random_z_eval
+  # Probe-specific settings
+  attention_to_z:
+    # Average across batch or keep per-example
+    aggregate: true
+  logit_lens:
+    # Use tuned lens if available
+    use_tuned_lens: false
+  causal_patching:
+    # Number of examples to use for patching
+    n_examples: 256
+    # Which layers to patch at
+    patch_layers: "all"  # or list of ints
+    
+# Output paths
+output:
+  base_dir: "outputs"
+  # Will create: {base_dir}/{experiment.name}/checkpoints, probe_results, figures

@@ -1,0 +1,14 @@
+# K=1 baseline: One-to-one mapping in both directions
+# This is the control condition where there's no disambiguation needed
+
+defaults:
+  - ../base
+
+experiment:
+  name: "k1_n1000"
+  
+data:
+  n_unique_b: 1000
+  k: 1
+  # n_pairs_effective = n_unique_b = 1000
+  # Total examples = n_unique_b * k = 1000

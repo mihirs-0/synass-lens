@@ -1,0 +1,20 @@
+# K=100: Each B maps to 100 different A's, z selects which one
+# More extreme disambiguation requirement
+
+defaults:
+  - ../base
+
+experiment:
+  name: "k100_n1000"
+  
+data:
+  n_unique_b: 1000
+  k: 100
+  # n_pairs_effective = n_unique_b = 1000 (same as K=1)
+  # Total examples = n_unique_b * k = 100000
+  # z needs more bits to disambiguate
+  z_length: 3  # Need more bits for 100 options
+  
+training:
+  # May need more steps for harder task
+  max_steps: 30000

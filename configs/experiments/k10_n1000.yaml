@@ -1,0 +1,15 @@
+# K=10: Each B maps to 10 different A's, z selects which one
+# This is the core experiment showing disambiguation lag
+
+defaults:
+  - ../base
+
+experiment:
+  name: "k10_n1000"
+  
+data:
+  n_unique_b: 1000
+  k: 10
+  # n_pairs_effective = n_unique_b = 1000 (same as K=1)
+  # Total examples = n_unique_b * k = 10000
+  # But model sees same number of unique B strings
