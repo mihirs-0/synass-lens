@@ -47,6 +47,7 @@ def generate_mappings(
     vocab_chars: str,
     seed: int = 42,
     task: str = "bz_to_a",
+    enforce_unique_a_first_char_per_b: bool = False,
 ) -> MappingData:
     """
     Generate mappings for the selected task.
@@ -78,6 +79,11 @@ def generate_mappings(
     examples: List[Dict[str, str]] = []
     
     if task in {"bz_to_a", "b_to_a"}:
+        if enforce_unique_a_first_char_per_b and k > len(vocab_chars):
+            raise ValueError(
+                "Cannot enforce unique A first chars per B: k exceeds vocab size."
+            )
+
         # Base strings are B, targets are A
         for _ in range(n_unique_b):
             b = generate_random_string(b_length, vocab_chars, rng)
@@ -87,12 +93,36 @@ def generate_mappings(
             
             # Generate K unique A's for this B (global uniqueness)
             a_list = []
-            for _ in range(k):
-                a = generate_random_string(a_length, vocab_chars, rng)
-                while a in used_a:
+            if enforce_unique_a_first_char_per_b:
+                first_chars = rng.sample(list(vocab_chars), k)
+                for first_char in first_chars:
+                    if a_length == 1:
+                        a = first_char
+                    else:
+                        suffix = generate_random_string(a_length - 1, vocab_chars, rng)
+                        a = first_char + suffix
+                    attempts = 0
+                    while a in used_a:
+                        attempts += 1
+                        if attempts > 1000:
+                            raise ValueError(
+                                "Failed to generate unique A strings. "
+                                "Try increasing a_length or vocab size."
+                            )
+                        if a_length == 1:
+                            a = first_char
+                        else:
+                            suffix = generate_random_string(a_length - 1, vocab_chars, rng)
+                            a = first_char + suffix
+                    used_a.add(a)
+                    a_list.append(a)
+            else:
+                for _ in range(k):
                     a = generate_random_string(a_length, vocab_chars, rng)
-                used_a.add(a)
-                a_list.append(a)
+                    while a in used_a:
+                        a = generate_random_string(a_length, vocab_chars, rng)
+                    used_a.add(a)
+                    a_list.append(a)
             
             mappings[b] = [(z_selectors[i], a_list[i]) for i in range(k)]
             for i in range(k):
@@ -261,6 +291,7 @@ def create_datasets_from_config(cfg, tokenizer: CharTokenizer) -> Tuple[Disambig
         vocab_chars=cfg.data.vocab_chars,
         seed=cfg.experiment.seed,
         task=cfg.data.task,
+        enforce_unique_a_first_char_per_b=getattr(cfg.data, "enforce_unique_a_first_char_per_b", False),
     )
     
     train_dataset = DisambiguationDataset(

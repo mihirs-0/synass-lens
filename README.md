@@ -122,6 +122,11 @@ late-disambiguation-lag/
 - `data.task=b_to_a`: B is ambiguous and z is omitted; irreducible loss should approach `log K`.
 - `data.task=a_to_b`: A is the base and z is omitted; mapping is deterministic.
 
+### Controlling first-character bias (B→A sanity check)
+For `b_to_a`, the irreducible loss bound assumes the **first character** of the K valid A's is uniform.  
+To enforce this, set:
+`data.enforce_unique_a_first_char_per_b=true`
+
 ### n_pairs_effective normalization
 We control the number of **unique B strings** across experiments, not total examples:
 
