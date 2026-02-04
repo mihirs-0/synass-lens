@@ -18,8 +18,10 @@ def load_results(results_path: Path) -> Dict[str, Any]:
         return json.load(f)
 
 
-def load_training_history(history_path: Path) -> Dict[str, Any]:
-    """Load training history from JSON."""
+def load_training_history(history_path: Path) -> Optional[Dict[str, Any]]:
+    """Load training history from JSON (if present)."""
+    if not history_path.exists():
+        return None
     with open(history_path, "r") as f:
         return json.load(f)
 
@@ -486,11 +488,14 @@ def generate_all_figures(
     exp_name = experiment_dir.name
     
     # Generate figures
-    plot_training_curves(
-        history,
-        save_path=output_dir / "training_curves.png",
-        title=f"{exp_name}: Training Progress",
-    )
+    if history is not None:
+        plot_training_curves(
+            history,
+            save_path=output_dir / "training_curves.png",
+            title=f"{exp_name}: Training Progress",
+        )
+    else:
+        print(f"Warning: training history missing at {history_path}. Skipping training curves.")
 
     if "attention_to_z" in results["probe_results"]:
         plot_attention_to_z_evolution(
@@ -520,12 +525,15 @@ def generate_all_figures(
             title=f"{exp_name}: Random-z Sensitivity",
         )
 
-    plot_combined_dashboard(
-        results,
-        history,
-        save_path=output_dir / "dashboard.png",
-        title=f"{exp_name}: Mechanistic Analysis Dashboard",
-    )
+    if history is not None:
+        plot_combined_dashboard(
+            results,
+            history,
+            save_path=output_dir / "dashboard.png",
+            title=f"{exp_name}: Mechanistic Analysis Dashboard",
+        )
+    else:
+        print("Warning: training history missing. Skipping combined dashboard.")
     
     print(f"\nAll figures saved to {output_dir}")
 
