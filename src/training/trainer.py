@@ -244,6 +244,12 @@ def train(
                     train_accuracy=train_acc,
                     checkpoint_dir=checkpoint_dir,
                 )
+                
+                # Save training history periodically (for interrupted runs)
+                history_path = output_dir / cfg.experiment.name / "training_history.json"
+                history_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(history_path, "w") as f:
+                    json.dump(history, f, indent=2)
             
             pbar.update(1)
     
