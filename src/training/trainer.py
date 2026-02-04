@@ -35,14 +35,14 @@ class TrainingMetrics:
 def compute_loss(
     model: HookedTransformer,
     batch: Dict[str, torch.Tensor],
-) -> Tuple[torch.Tensor, float]:
+) -> Tuple[torch.Tensor, float, float]:
     """
     Compute cross-entropy loss for next-token prediction.
     
     Only computes loss on target tokens (where labels != -100).
     
     Returns:
-        (loss tensor for backprop, accuracy float)
+        (loss tensor for backprop, accuracy float, first_target_loss float)
     """
     input_ids = batch["input_ids"]
     labels = batch["labels"]
@@ -79,7 +79,22 @@ def compute_loss(
     else:
         accuracy = torch.tensor(0.0)
     
-    return loss, accuracy.item()
+    # Compute loss on the first target token only (sanity check metric)
+    if "target_start_positions" in batch:
+        target_start = batch["target_start_positions"].to(logits.device)
+        batch_idx = torch.arange(logits.size(0), device=logits.device)
+        pred_pos = target_start - 1  # predicts token at target_start
+        valid = pred_pos >= 0
+        if valid.any():
+            logits_first = logits[batch_idx[valid], pred_pos[valid]]
+            labels_first = labels[batch_idx[valid], target_start[valid]]
+            first_target_loss = F.cross_entropy(logits_first, labels_first)
+        else:
+            first_target_loss = torch.tensor(0.0, device=logits.device)
+    else:
+        first_target_loss = torch.tensor(0.0, device=logits.device)
+    
+    return loss, accuracy.item(), first_target_loss.item()
 
 
 def get_lr_scheduler(
@@ -144,6 +159,7 @@ def train(
     history = {
         "train_loss": [],
         "train_accuracy": [],
+        "first_target_loss": [],
         "steps": [],
     }
     
@@ -153,6 +169,7 @@ def train(
     epoch = 0
     running_loss = 0.0
     running_acc = 0.0
+    running_first_loss = 0.0
     n_batches = 0
     
     pbar = tqdm(total=cfg.training.max_steps, desc="Training")
@@ -170,7 +187,7 @@ def train(
             
             # Forward + backward
             optimizer.zero_grad()
-            loss, train_acc = compute_loss(model, batch)
+            loss, train_acc, first_target_loss = compute_loss(model, batch)
             current_train_acc = train_acc
             loss.backward()
             
@@ -183,6 +200,7 @@ def train(
             # Track loss
             running_loss += loss.item()
             running_acc += train_acc
+            running_first_loss += first_target_loss
             n_batches += 1
             step += 1
             
@@ -190,18 +208,22 @@ def train(
             if step % cfg.training.eval_every == 0:
                 avg_train_loss = running_loss / n_batches
                 avg_train_acc = running_acc / n_batches
+                avg_first_loss = running_first_loss / n_batches
                 
                 history["train_loss"].append(avg_train_loss)
                 history["train_accuracy"].append(avg_train_acc)
+                history["first_target_loss"].append(avg_first_loss)
                 history["steps"].append(step)
                 
                 pbar.set_postfix({
                     "train_loss": f"{avg_train_loss:.4f}",
+                    "first_loss": f"{avg_first_loss:.4f}",
                     "train_acc": f"{avg_train_acc:.2%}",
                 })
                 
                 running_loss = 0.0
                 running_acc = 0.0
+                running_first_loss = 0.0
                 n_batches = 0
             
             # Checkpoint periodically
