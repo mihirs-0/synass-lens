@@ -178,6 +178,7 @@ class DisambiguationDataset(Dataset):
         probe_fraction: float = 0.1,
         seed: int = 42,
         task: str = "bz_to_a",
+        split_by_base: bool = False,
     ):
         self.mapping_data = mapping_data
         self.tokenizer = tokenizer
@@ -187,13 +188,33 @@ class DisambiguationDataset(Dataset):
         # Split examples
         rng = random.Random(seed)
         examples = mapping_data.examples.copy()
-        rng.shuffle(examples)
         
-        n_probe = int(len(examples) * probe_fraction)
-        if split == "train":
-            self.examples = examples[n_probe:]
+        if split_by_base:
+            base_key = "b" if self.task in {"bz_to_a", "b_to_a"} else "a"
+            base_to_examples: Dict[str, List[Dict[str, str]]] = {}
+            for ex in examples:
+                base_to_examples.setdefault(ex[base_key], []).append(ex)
+            
+            bases = list(base_to_examples.keys())
+            rng.shuffle(bases)
+            n_probe_bases = int(len(bases) * probe_fraction)
+            probe_bases = set(bases[:n_probe_bases])
+            
+            if split == "train":
+                self.examples = [
+                    ex for b in bases if b not in probe_bases for ex in base_to_examples[b]
+                ]
+            else:
+                self.examples = [
+                    ex for b in bases if b in probe_bases for ex in base_to_examples[b]
+                ]
         else:
-            self.examples = examples[:n_probe]
+            rng.shuffle(examples)
+            n_probe = int(len(examples) * probe_fraction)
+            if split == "train":
+                self.examples = examples[n_probe:]
+            else:
+                self.examples = examples[:n_probe]
             
         # Pre-tokenize all examples
         self._precompute_tokens()
@@ -301,6 +322,7 @@ def create_datasets_from_config(cfg, tokenizer: CharTokenizer) -> Tuple[Disambig
         probe_fraction=cfg.data.probe_fraction,
         seed=cfg.experiment.seed,
         task=cfg.data.task,
+        split_by_base=getattr(cfg.data, "split_by_base", False),
     )
     
     probe_dataset = DisambiguationDataset(
@@ -310,6 +332,7 @@ def create_datasets_from_config(cfg, tokenizer: CharTokenizer) -> Tuple[Disambig
         probe_fraction=cfg.data.probe_fraction,
         seed=cfg.experiment.seed,
         task=cfg.data.task,
+        split_by_base=getattr(cfg.data, "split_by_base", False),
     )
     
     return train_dataset, probe_dataset, mapping_data

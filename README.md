@@ -131,6 +131,9 @@ To enforce this, set:
 By default `data.probe_fraction=0.0`, so no probe set is created.  
 To enable probes/analysis, set `data.probe_fraction>0`.
 
+If you enable probes, consider keeping all examples for a base together:
+`data.split_by_base=true`
+
 ### n_pairs_effective normalization
 We control the number of **unique B strings** across experiments, not total examples:
 

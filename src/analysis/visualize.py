@@ -30,13 +30,21 @@ def plot_training_curves(
     title: str = "Training Progress",
 ):
     """Plot training loss and training accuracy."""
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+    has_first_loss = "first_target_loss" in history and history["first_target_loss"]
+    n_cols = 3 if has_first_loss else 2
+    fig, axes = plt.subplots(1, n_cols, figsize=(6 * n_cols, 4))
+    if n_cols == 2:
+        axes = [axes[0], axes[1]]
+    else:
+        axes = list(axes)
     
     steps = history["steps"]
     
     # Loss
     ax = axes[0]
     ax.plot(steps, history["train_loss"], label="Train", alpha=0.8)
+    if has_first_loss:
+        ax.plot(steps, history["first_target_loss"], label="First token", alpha=0.8)
     ax.set_xlabel("Step")
     ax.set_ylabel("Loss")
     ax.set_title("Training Loss")
@@ -55,6 +63,14 @@ def plot_training_curves(
     ax.set_ylabel("Accuracy")
     ax.grid(True, alpha=0.3)
     ax.set_ylim(0, 1)
+    
+    if has_first_loss:
+        ax = axes[2]
+        ax.plot(steps, history["first_target_loss"], color="purple", alpha=0.8)
+        ax.set_xlabel("Step")
+        ax.set_ylabel("Loss")
+        ax.set_title("First Target Loss")
+        ax.grid(True, alpha=0.3)
     
     plt.suptitle(title)
     plt.tight_layout()
@@ -322,10 +338,13 @@ def plot_combined_dashboard(
     
     # 1. Training loss (top left)
     ax1 = fig.add_subplot(gs[0, 0])
-    ax1.plot(history["steps"], history["train_loss"], color="blue", linewidth=2)
+    ax1.plot(history["steps"], history["train_loss"], color="blue", linewidth=2, label="Train loss")
+    if "first_target_loss" in history and history["first_target_loss"]:
+        ax1.plot(history["steps"], history["first_target_loss"], color="purple", linewidth=2, label="First target loss")
     ax1.set_xlabel("Step")
     ax1.set_ylabel("Training Loss")
     ax1.set_title("A) Training Loss")
+    ax1.legend()
     ax1.grid(True, alpha=0.3)
     
     # 2. Attention to z (top right)
@@ -402,8 +421,17 @@ def plot_combined_dashboard(
         loss_interp = np.interp(steps, history["steps"], loss)
         acc_label = "Train Loss (inv)"
         acc_series = (loss_interp.max() - loss_interp) / (loss_interp.max() - loss_interp.min() + 1e-8)
+    first_loss_series = None
+    if "first_target_loss" in history and history["first_target_loss"]:
+        first_loss = np.array(history["first_target_loss"])
+        first_loss_interp = np.interp(steps, history["steps"], first_loss)
+        first_loss_series = (first_loss_interp.max() - first_loss_interp) / (
+            first_loss_interp.max() - first_loss_interp.min() + 1e-8
+        )
     
     ax5.plot(steps, acc_series, label=acc_label, linewidth=2)
+    if first_loss_series is not None:
+        ax5.plot(steps, first_loss_series, label="First target loss (inv)", linewidth=2)
     if attn_matrix is not None:
         attn_avg = attn_matrix.mean(axis=-1)  # Average across layers
         attn_norm = (attn_avg - attn_avg.min()) / (attn_avg.max() - attn_avg.min() + 1e-8)
