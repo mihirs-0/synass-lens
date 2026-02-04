@@ -134,6 +134,9 @@ To enable probes/analysis, set `data.probe_fraction>0`.
 If you enable probes, consider keeping all examples for a base together:
 `data.split_by_base=true`
 
+If `probe_fraction=0.0`, `scripts/analyze.py` will run probes on the **training**
+dataset instead (no held-out validation data).
+
 ### n_pairs_effective normalization
 We control the number of **unique B strings** across experiments, not total examples:
 

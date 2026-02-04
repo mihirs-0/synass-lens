@@ -58,9 +58,9 @@ def main():
         
         print(f"Probe examples: {len(probe_dataset)}")
         if len(probe_dataset) == 0:
-            print("Error: probe_fraction is 0; no probe dataset available.")
-            print("Set data.probe_fraction>0 to run probes.")
-            sys.exit(1)
+            print("Note: probe_fraction is 0; running probes on TRAIN dataset.")
+            print("This keeps all data in training and uses training data for analysis.")
+            probe_dataset = train_dataset
         
         # Model factory (creates fresh model for each checkpoint)
         def model_factory():
