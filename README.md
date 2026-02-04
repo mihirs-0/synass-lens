@@ -119,6 +119,8 @@ late-disambiguation-lag/
 ### Task direction (Bz→A vs Az→B)
 - `data.task=bz_to_a` (default): B is ambiguous and z disambiguates which A is correct (K targets per base).
 - `data.task=az_to_b`: A is the base and B is the target. z is redundant here; K unique A strings map to the same B (K A per B).
+- `data.task=b_to_a`: B is ambiguous and z is omitted; irreducible loss should approach `log K`.
+- `data.task=a_to_b`: A is the base and z is omitted; mapping is deterministic.
 
 ### n_pairs_effective normalization
 We control the number of **unique B strings** across experiments, not total examples:

@@ -62,6 +62,10 @@ def main():
         def model_factory():
             return create_model_from_config(cfg, tokenizer)
         
+        if args.probes is None and cfg.data.task in {"b_to_a", "a_to_b"}:
+            # No z in the sequence; skip z-dependent probes by default.
+            args.probes = ["logit_lens"]
+
         # Run analysis
         print("\nRunning probes on checkpoints...")
         results = run_analysis(

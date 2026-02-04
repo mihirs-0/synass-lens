@@ -51,14 +51,17 @@ def main(cfg: DictConfig):
     print(f"Train examples: {len(train_dataset)}")
     print(f"Probe examples: {len(probe_dataset)}")
     print(f"Task: {cfg.data.task}")
-    if cfg.data.task == "bz_to_a":
+    if cfg.data.task in {"bz_to_a", "b_to_a"}:
         print(f"Unique B strings: {mapping_data.n_unique_b}")
         print(f"Unique A strings: {mapping_data.n_unique_a}")
         print(f"K (A per B): {mapping_data.k}")
     else:
         print(f"Unique B strings: {mapping_data.n_unique_b}")
         print(f"Unique A strings: {mapping_data.n_unique_a}")
-        print(f"K (A per B, z redundant): {mapping_data.k}")
+        if cfg.data.task == "az_to_b":
+            print(f"K (A per B, z redundant): {mapping_data.k}")
+        else:
+            print(f"K (A per B, no z): {mapping_data.k}")
     
     # Create dataloaders
     train_loader = DataLoader(

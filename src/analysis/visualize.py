@@ -330,44 +330,58 @@ def plot_combined_dashboard(
     
     # 2. Attention to z (top right)
     ax2 = fig.add_subplot(gs[0, 1])
-    attn_results = results["probe_results"]["attention_to_z"]
-    n_layers = len(list(attn_results.values())[0]["attention_to_z"])
-    attn_matrix = np.zeros((len(steps), n_layers))
-    for i, step in enumerate(steps):
-        attn_matrix[i] = np.array(attn_results[str(step)]["attention_to_z"]).mean(axis=-1)
-    for layer in range(n_layers):
-        ax2.plot(steps, attn_matrix[:, layer], label=f"L{layer}", linewidth=2)
+    attn_matrix = None
+    if "attention_to_z" in results["probe_results"]:
+        attn_results = results["probe_results"]["attention_to_z"]
+        n_layers = len(list(attn_results.values())[0]["attention_to_z"])
+        attn_matrix = np.zeros((len(steps), n_layers))
+        for i, step in enumerate(steps):
+            attn_matrix[i] = np.array(attn_results[str(step)]["attention_to_z"]).mean(axis=-1)
+        for layer in range(n_layers):
+            ax2.plot(steps, attn_matrix[:, layer], label=f"L{layer}", linewidth=2)
+        ax2.legend()
+        ax2.set_ylabel("Attention to z")
+        ax2.set_title("B) Attention to Selector (z)")
+    else:
+        ax2.text(0.5, 0.5, "Attention-to-z probe missing", ha="center", va="center")
+        ax2.set_title("B) Attention to Selector (z)")
     ax2.set_xlabel("Step")
-    ax2.set_ylabel("Attention to z")
-    ax2.set_title("B) Attention to Selector (z)")
-    ax2.legend()
     ax2.grid(True, alpha=0.3)
     
     # 3. Logit lens (middle left)
     ax3 = fig.add_subplot(gs[1, 0])
-    ll_results = results["probe_results"]["logit_lens"]
-    n_layers_plus_one = len(list(ll_results.values())[0]["correct_prob_by_layer"])
-    prob_matrix = np.zeros((len(steps), n_layers_plus_one))
-    for i, step in enumerate(steps):
-        prob_matrix[i] = np.array(ll_results[str(step)]["correct_prob_by_layer"])
-    # Just plot final layer and embedding
-    ax3.plot(steps, prob_matrix[:, 0], label="Embed", linewidth=2, linestyle="--")
-    ax3.plot(steps, prob_matrix[:, -1], label="Final", linewidth=2)
+    prob_matrix = None
+    if "logit_lens" in results["probe_results"]:
+        ll_results = results["probe_results"]["logit_lens"]
+        n_layers_plus_one = len(list(ll_results.values())[0]["correct_prob_by_layer"])
+        prob_matrix = np.zeros((len(steps), n_layers_plus_one))
+        for i, step in enumerate(steps):
+            prob_matrix[i] = np.array(ll_results[str(step)]["correct_prob_by_layer"])
+        # Just plot final layer and embedding
+        ax3.plot(steps, prob_matrix[:, 0], label="Embed", linewidth=2, linestyle="--")
+        ax3.plot(steps, prob_matrix[:, -1], label="Final", linewidth=2)
+        ax3.legend()
+        ax3.set_ylabel("P(correct)")
+        ax3.set_ylim(0, 1)
+    else:
+        ax3.text(0.5, 0.5, "Logit-lens probe missing", ha="center", va="center")
     ax3.set_xlabel("Step")
-    ax3.set_ylabel("P(correct)")
     ax3.set_title("C) Logit Lens: P(correct)")
-    ax3.legend()
     ax3.grid(True, alpha=0.3)
-    ax3.set_ylim(0, 1)
     
     # 4. Causal patching (middle right)
     ax4 = fig.add_subplot(gs[1, 1])
-    patch_results = results["probe_results"]["causal_patching"]
-    first_result = list(patch_results.values())[0]
-    if "error" not in first_result:
-        z_scores = [patch_results[str(step)]["z_dependence_score"] for step in steps]
-        ax4.plot(steps, z_scores, color="red", linewidth=2, marker="o", markersize=3)
-        ax4.axhline(y=0.5, color="gray", linestyle="--", alpha=0.5)
+    patch_results = results["probe_results"].get("causal_patching")
+    z_scores = None
+    first_result = None
+    if patch_results:
+        first_result = list(patch_results.values())[0]
+        if "error" not in first_result:
+            z_scores = [patch_results[str(step)]["z_dependence_score"] for step in steps]
+            ax4.plot(steps, z_scores, color="red", linewidth=2, marker="o", markersize=3)
+            ax4.axhline(y=0.5, color="gray", linestyle="--", alpha=0.5)
+    else:
+        ax4.text(0.5, 0.5, "Causal-patching probe missing", ha="center", va="center")
     ax4.set_xlabel("Step")
     ax4.set_ylabel("z-Dependence")
     ax4.set_title("D) Causal z-Dependence")
@@ -389,17 +403,16 @@ def plot_combined_dashboard(
         acc_label = "Train Loss (inv)"
         acc_series = (loss_interp.max() - loss_interp) / (loss_interp.max() - loss_interp.min() + 1e-8)
     
-    attn_avg = attn_matrix.mean(axis=-1)  # Average across layers
-    attn_norm = (attn_avg - attn_avg.min()) / (attn_avg.max() - attn_avg.min() + 1e-8)
-    
-    prob_final = prob_matrix[:, -1]
-    prob_norm = prob_final  # Already in [0, 1]
-    
     ax5.plot(steps, acc_series, label=acc_label, linewidth=2)
-    ax5.plot(steps, attn_norm, label="Attention to z (norm)", linewidth=2)
-    ax5.plot(steps, prob_norm, label="P(correct) final layer", linewidth=2)
-    
-    if "error" not in first_result:
+    if attn_matrix is not None:
+        attn_avg = attn_matrix.mean(axis=-1)  # Average across layers
+        attn_norm = (attn_avg - attn_avg.min()) / (attn_avg.max() - attn_avg.min() + 1e-8)
+        ax5.plot(steps, attn_norm, label="Attention to z (norm)", linewidth=2)
+    if prob_matrix is not None:
+        prob_final = prob_matrix[:, -1]
+        prob_norm = prob_final  # Already in [0, 1]
+        ax5.plot(steps, prob_norm, label="P(correct) final layer", linewidth=2)
+    if z_scores is not None:
         z_scores_arr = np.array(z_scores)
         ax5.plot(steps, z_scores_arr, label="z-Dependence", linewidth=2, color="red")
     
@@ -450,24 +463,27 @@ def generate_all_figures(
         save_path=output_dir / "training_curves.png",
         title=f"{exp_name}: Training Progress",
     )
-    
-    plot_attention_to_z_evolution(
-        results,
-        save_path=output_dir / "attention_to_z.png",
-        title=f"{exp_name}: Attention to z",
-    )
-    
-    plot_logit_lens_evolution(
-        results,
-        save_path=output_dir / "logit_lens.png",
-        title=f"{exp_name}: Logit Lens",
-    )
-    
-    plot_z_dependence_evolution(
-        results,
-        save_path=output_dir / "z_dependence.png",
-        title=f"{exp_name}: Causal z-Dependence",
-    )
+
+    if "attention_to_z" in results["probe_results"]:
+        plot_attention_to_z_evolution(
+            results,
+            save_path=output_dir / "attention_to_z.png",
+            title=f"{exp_name}: Attention to z",
+        )
+
+    if "logit_lens" in results["probe_results"]:
+        plot_logit_lens_evolution(
+            results,
+            save_path=output_dir / "logit_lens.png",
+            title=f"{exp_name}: Logit Lens",
+        )
+
+    if "causal_patching" in results["probe_results"]:
+        plot_z_dependence_evolution(
+            results,
+            save_path=output_dir / "z_dependence.png",
+            title=f"{exp_name}: Causal z-Dependence",
+        )
 
     if "random_z_eval" in results["probe_results"]:
         plot_random_z_sensitivity_evolution(
@@ -475,7 +491,7 @@ def generate_all_figures(
             save_path=output_dir / "random_z_sensitivity.png",
             title=f"{exp_name}: Random-z Sensitivity",
         )
-    
+
     plot_combined_dashboard(
         results,
         history,
@@ -486,9 +502,11 @@ def generate_all_figures(
     print(f"\nAll figures saved to {output_dir}")
 
 
-def _extract_attention_avg(results: Dict[str, Any]) -> Tuple[List[int], np.ndarray]:
+def _extract_attention_avg(results: Dict[str, Any]) -> Optional[Tuple[List[int], np.ndarray]]:
     steps = results["steps"]
-    attn_results = results["probe_results"]["attention_to_z"]
+    attn_results = results["probe_results"].get("attention_to_z")
+    if not attn_results:
+        return None
     n_layers = len(list(attn_results.values())[0]["attention_to_z"])
     attn_matrix = np.zeros((len(steps), n_layers))
     for i, step in enumerate(steps):
@@ -497,9 +515,11 @@ def _extract_attention_avg(results: Dict[str, Any]) -> Tuple[List[int], np.ndarr
     return steps, attn_avg
 
 
-def _extract_logit_final(results: Dict[str, Any]) -> Tuple[List[int], np.ndarray]:
+def _extract_logit_final(results: Dict[str, Any]) -> Optional[Tuple[List[int], np.ndarray]]:
     steps = results["steps"]
-    ll_results = results["probe_results"]["logit_lens"]
+    ll_results = results["probe_results"].get("logit_lens")
+    if not ll_results:
+        return None
     n_layers_plus_one = len(list(ll_results.values())[0]["correct_prob_by_layer"])
     prob_matrix = np.zeros((len(steps), n_layers_plus_one))
     for i, step in enumerate(steps):
@@ -510,7 +530,9 @@ def _extract_logit_final(results: Dict[str, Any]) -> Tuple[List[int], np.ndarray
 
 def _extract_z_dependence(results: Dict[str, Any]) -> Optional[Tuple[List[int], np.ndarray]]:
     steps = results["steps"]
-    patch_results = results["probe_results"]["causal_patching"]
+    patch_results = results["probe_results"].get("causal_patching")
+    if not patch_results:
+        return None
     first_result = list(patch_results.values())[0]
     if "error" in first_result:
         return None
@@ -556,26 +578,34 @@ def plot_overlay_dashboard(
     ax = axes[1]
     for exp_dir in experiment_dirs:
         results = load_results(exp_dir / "probe_results" / "all_probes.json")
-        steps, attn_avg = _extract_attention_avg(results)
+        extracted = _extract_attention_avg(results)
+        if extracted is None:
+            continue
+        steps, attn_avg = extracted
         ax.plot(steps, attn_avg, label=exp_dir.name, linewidth=2)
     ax.set_xlabel("Step")
     ax.set_ylabel("Attention to z (avg)")
     ax.set_title("B) Attention to z")
     ax.grid(True, alpha=0.3)
-    ax.legend()
+    if ax.lines:
+        ax.legend()
     
     # C) Logit lens (final layer)
     ax = axes[2]
     for exp_dir in experiment_dirs:
         results = load_results(exp_dir / "probe_results" / "all_probes.json")
-        steps, prob_final = _extract_logit_final(results)
+        extracted = _extract_logit_final(results)
+        if extracted is None:
+            continue
+        steps, prob_final = extracted
         ax.plot(steps, prob_final, label=exp_dir.name, linewidth=2)
     ax.set_xlabel("Step")
     ax.set_ylabel("P(correct) final layer")
     ax.set_title("C) Logit Lens (final layer)")
     ax.grid(True, alpha=0.3)
     ax.set_ylim(0, 1)
-    ax.legend()
+    if ax.lines:
+        ax.legend()
     
     # D) Causal z-dependence
     ax = axes[3]

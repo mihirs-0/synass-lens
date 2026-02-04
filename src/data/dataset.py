@@ -2,9 +2,9 @@
 Synthetic dataset for Late Disambiguation Lag experiments.
 
 Generates disambiguation mappings where:
-- base strings map to K different targets (bz_to_a)
-- or K different bases map to the same target (az_to_b)
-- task direction is configurable (Bz->A or Az->B)
+- base strings map to K different targets (bz_to_a / b_to_a)
+- or K different bases map to the same target (az_to_b / a_to_b)
+- task direction is configurable (Bz->A, Az->B, B->A, A->B)
 
 Key insight: We control n_pairs_effective (number of unique B's) across
 experiments, not total number of examples. This ensures fair comparison.
@@ -54,8 +54,10 @@ def generate_mappings(
     Tasks:
       - bz_to_a: base is B, target is A (B, z) -> A (K targets per base)
       - az_to_b: base is A, target is B (A, z) -> B (K bases per target; z redundant)
+      - b_to_a: base is B, target is A (B) -> A (K targets per base; no z)
+      - a_to_b: base is A, target is B (A) -> B (K bases per target; no z)
     """
-    if task not in {"bz_to_a", "az_to_b"}:
+    if task not in {"bz_to_a", "az_to_b", "b_to_a", "a_to_b"}:
         raise ValueError(f"Unknown task: {task}")
     
     rng = random.Random(seed)
@@ -75,7 +77,7 @@ def generate_mappings(
     mappings: Dict[str, List[Tuple[str, str]]] = {}
     examples: List[Dict[str, str]] = []
     
-    if task == "bz_to_a":
+    if task in {"bz_to_a", "b_to_a"}:
         # Base strings are B, targets are A
         for _ in range(n_unique_b):
             b = generate_random_string(b_length, vocab_chars, rng)
@@ -175,7 +177,7 @@ class DisambiguationDataset(Dataset):
             tok["b"] = ex["b"]
             tok["z"] = ex["z"]
             tok["a"] = ex["a"]
-            tok["base_string"] = ex["b"] if self.task == "bz_to_a" else ex["a"]
+            tok["base_string"] = ex["b"] if self.task in {"bz_to_a", "b_to_a"} else ex["a"]
             self.tokenized.append(tok)
     
     def __len__(self) -> int:

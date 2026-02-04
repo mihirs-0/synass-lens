@@ -12,7 +12,7 @@ data:
   n_unique_b: 1000
   # K: number of targets per base (bz_to_a: A's per B, az_to_b: A's per B; z redundant)
   k: 1
-  # Task direction: "bz_to_a" or "az_to_b"
+  # Task direction: "bz_to_a", "az_to_b", "b_to_a", or "a_to_b"
   task: "bz_to_a"
   # String lengths
   b_length: 6

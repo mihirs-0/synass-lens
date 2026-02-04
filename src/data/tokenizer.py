@@ -95,6 +95,8 @@ class CharTokenizer:
         Tasks:
             - "bz_to_a": <BOS> B <SEP> z <SEP> A <EOS>
             - "az_to_b": <BOS> A <SEP> z <SEP> B <EOS>
+            - "b_to_a": <BOS> B <SEP> A <EOS>  (no z)
+            - "a_to_b": <BOS> A <SEP> B <EOS>  (no z)
         
         Returns dict with:
             - input_ids: full sequence
@@ -102,10 +104,10 @@ class CharTokenizer:
             - z_position: index of first z token (for probing)
             - target_start_position: index of first target token
         """
-        if task not in {"bz_to_a", "az_to_b"}:
+        if task not in {"bz_to_a", "az_to_b", "b_to_a", "a_to_b"}:
             raise ValueError(f"Unknown task: {task}")
         
-        if task == "bz_to_a":
+        if task in {"bz_to_a", "b_to_a"}:
             left, right = b, a
         else:
             left, right = a, b
@@ -114,13 +116,23 @@ class CharTokenizer:
         tokens = [self.bos_token_id]
         tokens.extend(self.encode(left))
         tokens.append(self.sep_token_id)
-        z_position = len(tokens)  # First z token position
-        tokens.extend(self.encode(z))
-        tokens.append(self.sep_token_id)
-        target_start = len(tokens)  # First target token position
-        target_tokens = self.encode(right)
-        tokens.extend(target_tokens)
-        tokens.append(self.eos_token_id)
+        
+        if task in {"bz_to_a", "az_to_b"}:
+            z_position = len(tokens)  # First z token position
+            tokens.extend(self.encode(z))
+            tokens.append(self.sep_token_id)
+            target_start = len(tokens)  # First target token position
+            target_tokens = self.encode(right)
+            tokens.extend(target_tokens)
+            tokens.append(self.eos_token_id)
+            z_end_position = z_position + len(z)
+        else:
+            z_position = -1
+            z_end_position = -1
+            target_start = len(tokens)  # First target token position
+            target_tokens = self.encode(right)
+            tokens.extend(target_tokens)
+            tokens.append(self.eos_token_id)
         
         # Labels: -100 for all positions except target (and EOS)
         labels = [-100] * target_start + target_tokens + [self.eos_token_id]
@@ -129,7 +141,7 @@ class CharTokenizer:
             "input_ids": torch.tensor(tokens, dtype=torch.long),
             "labels": torch.tensor(labels, dtype=torch.long),
             "z_position": z_position,
-            "z_end_position": z_position + len(z),
+            "z_end_position": z_end_position,
             "target_start_position": target_start,
             "target_end_position": target_start + len(right),
         }
