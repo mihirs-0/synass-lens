@@ -21,7 +21,7 @@ data:
   # Character vocabulary (excluding special tokens)
   vocab_chars: "abcdefghijklmnopqrstuvwxyz0123456789"
   # Probe split (held-out subset for probes/analysis)
-  probe_fraction: 0.1
+  probe_fraction: 0.0
   # Enforce distinct first chars for A among the K options per B
   enforce_unique_a_first_char_per_b: false
   

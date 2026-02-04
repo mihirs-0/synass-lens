@@ -127,6 +127,10 @@ For `b_to_a`, the irreducible loss bound assumes the **first character** of the 
 To enforce this, set:
 `data.enforce_unique_a_first_char_per_b=true`
 
+### Probes are optional
+By default `data.probe_fraction=0.0`, so no probe set is created.  
+To enable probes/analysis, set `data.probe_fraction>0`.
+
 ### n_pairs_effective normalization
 We control the number of **unique B strings** across experiments, not total examples:
 

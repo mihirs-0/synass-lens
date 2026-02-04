@@ -57,6 +57,10 @@ def main():
         train_dataset, probe_dataset, mapping_data = create_datasets_from_config(cfg, tokenizer)
         
         print(f"Probe examples: {len(probe_dataset)}")
+        if len(probe_dataset) == 0:
+            print("Error: probe_fraction is 0; no probe dataset available.")
+            print("Set data.probe_fraction>0 to run probes.")
+            sys.exit(1)
         
         # Model factory (creates fresh model for each checkpoint)
         def model_factory():
