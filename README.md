@@ -137,6 +137,12 @@ If you enable probes, consider keeping all examples for a base together:
 If `probe_fraction=0.0`, `scripts/analyze.py` will run probes on the **training**
 dataset instead (no held-out validation data).
 
+### First-token-only ethos
+Our theoretical benchmarks (e.g. the log‑K floor) apply to the **first target token**.
+To keep the plots aligned with that, probes default to **first-token-only**:
+`probes.attention_to_z.first_token_only=true` and `probes.logit_lens.first_token_only=true`.
+This avoids averaging away the ambiguity signal across later (easy) target tokens.
+
 ### n_pairs_effective normalization
 We control the number of **unique B strings** across experiments, not total examples:
 

@@ -35,6 +35,7 @@ class LogitLensProbe(BaseProbe):
     
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__(config)
+        self.first_token_only = config.get("first_token_only", False) if config else False
         
     def run(
         self,
@@ -64,6 +65,7 @@ class LogitLensProbe(BaseProbe):
         top1_correct_sum = torch.zeros(n_layers + 1, device=device)
         entropy_sum = torch.zeros(n_layers + 1, device=device)
         n_tokens = 0
+        tokens_per_layer_count = torch.zeros(n_layers + 1, device=device)
         
         with torch.no_grad():
             for batch in tqdm(dataloader, desc="Logit lens probe", leave=False):
@@ -106,7 +108,12 @@ class LogitLensProbe(BaseProbe):
                         # So for target tokens, we look at logits at positions
                         # (target_start-1) to (target_end-1) predicting target_start..target_end
                         
-                        for pos in range(target_start, target_end):
+                        if self.first_token_only:
+                            pos_iter = range(target_start, target_start + 1)
+                        else:
+                            pos_iter = range(target_start, target_end)
+                        
+                        for pos in pos_iter:
                             pred_pos = pos - 1  # Position where prediction is made
                             target = labels[b, pos].item()
                             
@@ -128,9 +135,10 @@ class LogitLensProbe(BaseProbe):
                             entropy_sum[layer_idx] += entropy
                             
                             n_tokens += 1
+                            tokens_per_layer_count[layer_idx] += 1
         
         # Average (divide by n_tokens, accounting for n_layers+1 factor)
-        tokens_per_layer = n_tokens // (n_layers + 1)  # Approximate
+        tokens_per_layer = torch.clamp(tokens_per_layer_count, min=1.0)
         
         return {
             "correct_prob_by_layer": (correct_prob_sum / tokens_per_layer).cpu(),

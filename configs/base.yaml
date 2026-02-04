@@ -68,9 +68,13 @@ probes:
   attention_to_z:
     # Average across batch or keep per-example
     aggregate: true
+    # Focus on first target token only
+    first_token_only: true
   logit_lens:
     # Use tuned lens if available
     use_tuned_lens: false
+    # Focus on first target token only
+    first_token_only: true
   causal_patching:
     # Number of examples to use for patching
     n_examples: 256

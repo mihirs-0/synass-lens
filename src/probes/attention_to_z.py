@@ -36,6 +36,7 @@ class AttentionToZProbe(BaseProbe):
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__(config)
         self.aggregate = config.get("aggregate", True) if config else True
+        self.first_token_only = config.get("first_token_only", False) if config else False
         
     def run(
         self,
@@ -89,14 +90,22 @@ class AttentionToZProbe(BaseProbe):
                         target_start = target_start_positions[b].item()
                         target_end = target_end_positions[b].item()
                         
+                        if self.first_token_only:
+                            target_positions = slice(target_start, target_start + 1)
+                        else:
+                            target_positions = slice(target_start, target_end)
+                        
                         # Attention from target positions to z positions
                         # Shape: (n_heads, target_len, z_len)
-                        attn_target_to_z = attn[b, :, target_start:target_end, z_start:z_end]
+                        attn_target_to_z = attn[b, :, target_positions, z_start:z_end]
                         
                         # Sum over source (target) and target (z) positions to get
                         # total attention mass from target → z for each head
                         # Then normalize by number of target positions
-                        target_len = target_end - target_start
+                        if self.first_token_only:
+                            target_len = 1
+                        else:
+                            target_len = target_end - target_start
                         
                         # Average attention to z (per target position)
                         attn_to_z = attn_target_to_z.sum(dim=(1, 2)) / target_len  # (n_heads,)
@@ -105,7 +114,7 @@ class AttentionToZProbe(BaseProbe):
                         # Entropy of attention pattern (from target positions)
                         # Higher entropy = more uniform attention
                         # Lower entropy = more focused attention
-                        attn_from_target = attn[b, :, target_start:target_end, :]  # (n_heads, target_len, seq_len)
+                        attn_from_target = attn[b, :, target_positions, :]  # (n_heads, target_len, seq_len)
                         # Average over target positions
                         attn_avg = attn_from_target.mean(dim=1)  # (n_heads, seq_len)
                         # Compute entropy
