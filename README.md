@@ -143,6 +143,19 @@ To keep the plots aligned with that, probes default to **first-token-only**:
 `probes.attention_to_z.first_token_only=true` and `probes.logit_lens.first_token_only=true`.
 This avoids averaging away the ambiguity signal across later (easy) target tokens.
 
+### Z-reshuffle (z-shuffle) diagnostic
+During training we log a **z-reshuffle** loss that swaps z tokens across the batch
+while keeping B and A fixed. This preserves the base ambiguity structure but
+breaks the correct selector, giving a clean test of whether the model is using z.
+
+Interpretation:
+- If shuffled loss ≈ clean loss, the model is effectively ignoring z.
+- If shuffled loss spikes, the model is relying on z to pick the correct A.
+- The timing of the spike marks when z-dependence emerges.
+
+This diagnostic is read-only (no gradients) and uses the **first target token**
+loss to align with the log‑K theory baseline.
+
 ### n_pairs_effective normalization
 We control the number of **unique B strings** across experiments, not total examples:
 
