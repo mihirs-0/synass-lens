@@ -46,7 +46,8 @@ def shuffle_z_in_batch(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor
     batch_size = input_ids.shape[0]
     device = input_ids.device
     
-    # Generate a random permutation that guarantees no element stays in place
+    # Generate a random permutation that guarantees no element stays in place.
+    # This ensures every example's z is mismatched (true corruption signal).
     perm = torch.randperm(batch_size, device=device)
     # Fix any fixed points (where perm[i] == i)
     for i in range(batch_size):
@@ -55,21 +56,23 @@ def shuffle_z_in_batch(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor
             j = (i + 1) % batch_size
             perm[i], perm[j] = perm[j].clone(), perm[i].clone()
     
-    # Gather z tokens from permuted indices
+    # Gather z tokens from permuted indices so we can swap them cleanly.
     z_tokens_original = []
     for i in range(batch_size):
         z_start = z_positions[i].item()
         z_end = z_end_positions[i].item()
         z_tokens_original.append(input_ids[i, z_start:z_end].clone())
     
-    # Apply permutation: example i gets z from example perm[i]
+    # Apply permutation: example i gets z from example perm[i].
+    # This keeps B/A fixed but breaks the correct z selector.
     for i in range(batch_size):
         z_start = z_positions[i].item()
         z_end = z_end_positions[i].item()
         src_idx = perm[i].item()
         input_ids[i, z_start:z_end] = z_tokens_original[src_idx]
     
-    # Return new batch with shuffled z (other fields unchanged)
+    # Return new batch with shuffled z (other fields unchanged).
+    # This is used as a read-only diagnostic (no gradients).
     shuffled_batch = batch.copy()
     shuffled_batch["input_ids"] = input_ids
     return shuffled_batch
@@ -257,9 +260,11 @@ def train(
                 avg_train_acc = running_acc / n_batches
                 avg_first_loss = running_first_loss / n_batches
                 
-                # === Z-Randomization Probe ===
-                # Compute loss with shuffled z to measure z-sensitivity
-                # This does NOT affect gradients or training
+                # === Z-Reshuffle (Z-Shuffle) Diagnostic ===
+                # Compute loss with z swapped across the batch to measure
+                # z-dependence. If the model ignores z, loss should be similar
+                # to clean; if it uses z, shuffled loss should spike.
+                # This does NOT affect gradients or training.
                 with torch.no_grad():
                     model.eval()
                     shuffled_batch = shuffle_z_in_batch(batch)
