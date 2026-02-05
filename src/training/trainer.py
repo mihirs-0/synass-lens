@@ -55,10 +55,6 @@ def shuffle_z_in_batch(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor
             j = (i + 1) % batch_size
             perm[i], perm[j] = perm[j].clone(), perm[i].clone()
     
-    # Extract z tokens from each example
-    # Note: all z tokens have the same length in this setup
-    z_len = (z_end_positions[0] - z_positions[0]).item()
-    
     # Gather z tokens from permuted indices
     z_tokens_original = []
     for i in range(batch_size):
@@ -267,14 +263,14 @@ def train(
                 with torch.no_grad():
                     model.eval()
                     shuffled_batch = shuffle_z_in_batch(batch)
-                    loss_z_shuffled, _, _ = compute_loss(model, shuffled_batch)
-                    loss_z_shuffled_val = loss_z_shuffled.item()
+                    _, _, shuffled_first_loss = compute_loss(model, shuffled_batch)
+                    loss_z_shuffled_val = shuffled_first_loss
                     model.train()
                 
                 # Print diagnostic on first eval
                 if not _first_z_shuffle_logged:
                     print(f"\n[Z-Shuffle Probe] Step {step} | "
-                          f"Clean Loss: {loss.item():.4f} | "
+                          f"Clean Loss: {first_target_loss:.4f} | "
                           f"Shuffled Loss: {loss_z_shuffled_val:.4f}")
                     _first_z_shuffle_logged = True
                 

@@ -38,8 +38,13 @@ def main(cfg: DictConfig):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(cfg.experiment.seed)
     
-    # Device
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # Device (prefer cuda, then mps, else cpu)
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
+        device = "mps"
+    else:
+        device = "cpu"
     print(f"Using device: {device}")
     
     # Create tokenizer

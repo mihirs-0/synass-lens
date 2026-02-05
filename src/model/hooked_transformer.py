@@ -12,6 +12,15 @@ from transformer_lens import HookedTransformer, HookedTransformerConfig
 from ..data.tokenizer import CharTokenizer
 
 
+def _select_device() -> str:
+    """Select the best available device (cuda, mps, cpu)."""
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+        return "mps"
+    return "cpu"
+
+
 def create_hooked_transformer(
     tokenizer: CharTokenizer,
     n_layers: int = 4,
@@ -20,7 +29,7 @@ def create_hooked_transformer(
     d_head: Optional[int] = None,
     d_mlp: Optional[int] = None,
     act_fn: str = "gelu",
-    device: str = "cuda" if torch.cuda.is_available() else "cpu",
+    device: str = _select_device(),
 ) -> HookedTransformer:
     """
     Create a HookedTransformer configured for training from scratch.
@@ -90,7 +99,7 @@ def create_hooked_transformer(
 
 def create_model_from_config(cfg, tokenizer: CharTokenizer) -> HookedTransformer:
     """Factory function to create model from Hydra config."""
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = _select_device()
     
     return create_hooked_transformer(
         tokenizer=tokenizer,
