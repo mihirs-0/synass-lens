@@ -60,6 +60,15 @@ python scripts/train.py experiment.name=my_exp data.k=50 data.n_unique_b=500
 python scripts/analyze.py --experiment k10_n1000
 ```
 
+### 2b. Temperature sweep (SGD temperature test)
+```bash
+# Generate the LR/BS sweep commands (K=10)
+python scripts/launch_temperature_sweep.py
+
+# After runs finish, generate figures + summary table
+python scripts/analyze_temperature_sweep.py --output-dir outputs
+```
+
 ### 3. View results
 Check `outputs/k10_n1000/figures/` for:
 - `dashboard.png` - Combined view of all metrics
