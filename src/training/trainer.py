@@ -32,6 +32,53 @@ class TrainingMetrics:
     learning_rate: float = 0.0
 
 
+def shuffle_z_in_batch(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    """
+    Create a corrupted batch where z tokens are shuffled across the batch dimension.
+    
+    This preserves B and A but randomizes which z selector each example sees.
+    Used to test whether the model is actually using z information.
+    """
+    input_ids = batch["input_ids"].clone()
+    z_positions = batch["z_positions"]
+    z_end_positions = batch["z_end_positions"]
+    
+    batch_size = input_ids.shape[0]
+    device = input_ids.device
+    
+    # Generate a random permutation that guarantees no element stays in place
+    perm = torch.randperm(batch_size, device=device)
+    # Fix any fixed points (where perm[i] == i)
+    for i in range(batch_size):
+        if perm[i] == i:
+            # Swap with next element (wrapping around)
+            j = (i + 1) % batch_size
+            perm[i], perm[j] = perm[j].clone(), perm[i].clone()
+    
+    # Extract z tokens from each example
+    # Note: all z tokens have the same length in this setup
+    z_len = (z_end_positions[0] - z_positions[0]).item()
+    
+    # Gather z tokens from permuted indices
+    z_tokens_original = []
+    for i in range(batch_size):
+        z_start = z_positions[i].item()
+        z_end = z_end_positions[i].item()
+        z_tokens_original.append(input_ids[i, z_start:z_end].clone())
+    
+    # Apply permutation: example i gets z from example perm[i]
+    for i in range(batch_size):
+        z_start = z_positions[i].item()
+        z_end = z_end_positions[i].item()
+        src_idx = perm[i].item()
+        input_ids[i, z_start:z_end] = z_tokens_original[src_idx]
+    
+    # Return new batch with shuffled z (other fields unchanged)
+    shuffled_batch = batch.copy()
+    shuffled_batch["input_ids"] = input_ids
+    return shuffled_batch
+
+
 def compute_loss(
     model: HookedTransformer,
     batch: Dict[str, torch.Tensor],
@@ -160,8 +207,12 @@ def train(
         "train_loss": [],
         "train_accuracy": [],
         "first_target_loss": [],
+        "loss_z_shuffled": [],
         "steps": [],
     }
+    
+    # Flag to print diagnostic on first eval
+    _first_z_shuffle_logged = False
     
     # Training loop
     model.train()
@@ -210,14 +261,33 @@ def train(
                 avg_train_acc = running_acc / n_batches
                 avg_first_loss = running_first_loss / n_batches
                 
+                # === Z-Randomization Probe ===
+                # Compute loss with shuffled z to measure z-sensitivity
+                # This does NOT affect gradients or training
+                with torch.no_grad():
+                    model.eval()
+                    shuffled_batch = shuffle_z_in_batch(batch)
+                    loss_z_shuffled, _, _ = compute_loss(model, shuffled_batch)
+                    loss_z_shuffled_val = loss_z_shuffled.item()
+                    model.train()
+                
+                # Print diagnostic on first eval
+                if not _first_z_shuffle_logged:
+                    print(f"\n[Z-Shuffle Probe] Step {step} | "
+                          f"Clean Loss: {loss.item():.4f} | "
+                          f"Shuffled Loss: {loss_z_shuffled_val:.4f}")
+                    _first_z_shuffle_logged = True
+                
                 history["train_loss"].append(avg_train_loss)
                 history["train_accuracy"].append(avg_train_acc)
                 history["first_target_loss"].append(avg_first_loss)
+                history["loss_z_shuffled"].append(loss_z_shuffled_val)
                 history["steps"].append(step)
                 
                 pbar.set_postfix({
                     "train_loss": f"{avg_train_loss:.4f}",
                     "first_loss": f"{avg_first_loss:.4f}",
+                    "z_shuf": f"{loss_z_shuffled_val:.4f}",
                     "train_acc": f"{avg_train_acc:.2%}",
                 })
                 
