@@ -31,6 +31,7 @@ SWEEP_CONFIGS = [
 ]
 
 CONTROL_TEFF_NAMES = {"temp_lr1e3_bs256", "temp_lr5e4_bs128"}
+CONTROL_TEFF_BASE_NAMES = {"temp_lr1e3_bs256", "temp_lr5e4_bs128"}
 
 
 def _format_teff(teff: float) -> str:
@@ -82,18 +83,19 @@ def compute_lag_metrics(history: Dict[str, Any], k_value: int) -> Dict[str, Opti
     }
 
 
-def _collect_run_histories(output_dir: Path) -> List[Dict[str, Any]]:
+def _collect_run_histories(output_dir: Path, name_suffix: str) -> List[Dict[str, Any]]:
     """Load histories and metadata for all sweep runs."""
     runs = []
     for cfg in SWEEP_CONFIGS:
-        exp_dir = output_dir / cfg["name"]
+        exp_name = f"{cfg['name']}{name_suffix}"
+        exp_dir = output_dir / exp_name
         history_path = exp_dir / "training_history.json"
         history = load_training_history(history_path)
         if history is None:
             print(f"Warning: Missing history at {history_path}")
             continue
         runs.append({
-            "name": cfg["name"],
+            "name": exp_name,
             "lr": cfg["lr"],
             "bs": cfg["bs"],
             "teff": cfg["lr"] / cfg["bs"],
@@ -116,7 +118,7 @@ def _get_color_map(runs: List[Dict[str, Any]]):
     return color_for
 
 
-def _plot_loss_curves(runs: List[Dict[str, Any]], save_path: Path):
+def _plot_loss_curves(runs: List[Dict[str, Any]], save_path: Path, k_value: int):
     """Plot first-target loss curves for all runs."""
     fig, ax = plt.subplots(1, 1, figsize=(9, 6))
     color_for = _get_color_map(runs)
@@ -134,11 +136,11 @@ def _plot_loss_curves(runs: List[Dict[str, Any]], save_path: Path):
             color=color_for(run["teff"]),
         )
 
-    log_k = np.log(K_VALUE)
-    ax.axhline(y=log_k, color="gray", linestyle="--", alpha=0.7, label=f"log({K_VALUE}) = {log_k:.2f}")
+    log_k = np.log(k_value)
+    ax.axhline(y=log_k, color="gray", linestyle="--", alpha=0.7, label=f"log({k_value}) = {log_k:.2f}")
     ax.set_xlabel("Training Step")
     ax.set_ylabel("First Target Loss")
-    ax.set_title("Temperature Sweep: First Target Loss (K=10)")
+    ax.set_title(f"Temperature Sweep: First Target Loss (K={k_value})")
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=8)
     plt.tight_layout()
@@ -313,7 +315,7 @@ def _plot_lag_panels(runs: List[Dict[str, Any]], save_path: Path):
     print(f"Saved: {save_path}")
 
 
-def _plot_dashboard(runs: List[Dict[str, Any]], save_path: Path):
+def _plot_dashboard(runs: List[Dict[str, Any]], save_path: Path, k_value: int):
     """Create a 2x2 dashboard summarizing the sweep."""
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
     axes = axes.flatten()
@@ -332,8 +334,8 @@ def _plot_dashboard(runs: List[Dict[str, Any]], save_path: Path):
             color=color_for(run["teff"]),
             label=f"LR={run['lr']}, BS={run['bs']}",
         )
-    log_k = np.log(K_VALUE)
-    ax.axhline(y=log_k, color="gray", linestyle="--", alpha=0.7, label=f"log({K_VALUE})")
+    log_k = np.log(k_value)
+    ax.axhline(y=log_k, color="gray", linestyle="--", alpha=0.7, label=f"log({k_value})")
     ax.set_xlabel("Training Step")
     ax.set_ylabel("First Target Loss")
     ax.set_title("A) First Target Loss")
@@ -399,9 +401,9 @@ def _plot_dashboard(runs: List[Dict[str, Any]], save_path: Path):
     print(f"Saved: {save_path}")
 
 
-def _print_summary_table(runs: List[Dict[str, Any]]):
+def _print_summary_table(runs: List[Dict[str, Any]], k_value: int):
     """Print a formatted summary table to stdout."""
-    print("Temperature Sweep Results (K=10)")
+    print(f"Temperature Sweep Results (K={k_value})")
     print("=" * 100)
     header = (
         f"{'Config':<22} {'LR':<8} {'BS':<6} {'T_eff':<10} "
@@ -447,7 +449,16 @@ def main():
     parser = argparse.ArgumentParser(description="Analyze temperature sweep experiments")
     parser.add_argument("--output-dir", type=str, default="outputs",
                         help="Base output directory")
+    parser.add_argument("--k-value", type=int, default=10,
+                        help="K value used for the sweep")
+    parser.add_argument("--name-suffix", type=str, default="",
+                        help="Suffix appended to experiment names (e.g., _k36)")
     args = parser.parse_args()
+
+    global K_VALUE
+    K_VALUE = args.k_value
+    global CONTROL_TEFF_NAMES
+    CONTROL_TEFF_NAMES = {f"{name}{args.name_suffix}" for name in CONTROL_TEFF_BASE_NAMES}
 
     sns.set_theme(style="whitegrid")
     output_dir = Path(args.output_dir)
@@ -460,7 +471,7 @@ def main():
     print(f"Output: {figures_dir}")
     print("=" * 60)
 
-    runs = _collect_run_histories(output_dir)
+    runs = _collect_run_histories(output_dir, args.name_suffix)
     if not runs:
         print("No valid runs found. Exiting.")
         return
@@ -468,12 +479,12 @@ def main():
     for run in runs:
         run["metrics"] = compute_lag_metrics(run["history"], K_VALUE)
 
-    _plot_loss_curves(runs, figures_dir / "temperature_sweep_loss_curves.png")
+    _plot_loss_curves(runs, figures_dir / "temperature_sweep_loss_curves.png", K_VALUE)
     _plot_z_usage(runs, figures_dir / "temperature_sweep_z_usage.png")
     _plot_lag_panels(runs, figures_dir / "temperature_sweep_lag_vs_teff.png")
-    _plot_dashboard(runs, figures_dir / "temperature_sweep_dashboard.png")
+    _plot_dashboard(runs, figures_dir / "temperature_sweep_dashboard.png", K_VALUE)
 
-    _print_summary_table(runs)
+    _print_summary_table(runs, K_VALUE)
 
     print("\n" + "=" * 60)
     print("Analysis complete!")
