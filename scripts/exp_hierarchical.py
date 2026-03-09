@@ -6,17 +6,17 @@ Tests whether a transformer produces a loss staircase when learning
 a two-level hierarchical disambiguation task.
 
 Task: (B, z1, z2) -> A
-  - Each B maps to K1*K2 = 20 candidates, organized as K1=5 clusters of K2=4
-  - z1 (first char of z) selects the cluster
-  - z2 (second char of z) selects within the cluster
+  - Each B maps to K1*K2 candidates, organized as K1 clusters of K2
+  - z1 (first 2 chars of z) selects the cluster
+  - z2 (next 2 chars of z) selects within the cluster
 
 Prediction: candidate_loss should show two plateaus:
-  Phase 0: log(K1*K2) = log(20) ~ 3.00  (ignoring both z1, z2)
-  Phase 1: log(K2) = log(4) ~ 1.39      (using z1 only)
-  Phase 2: ~ 0                           (using both z1, z2)
+  Phase 0: log(K1*K2) = log(200) ~ 5.30  (ignoring both z1, z2)
+  Phase 1: log(K2) = log(10) ~ 2.30      (using z1 only)
+  Phase 2: ~ 0                            (using both z1, z2)
 
-The sequence format is IDENTICAL to the original wind tunnel:
-  [BOS, B(6), SEP, z1_char, z2_char, SEP, A(4), EOS]
+The sequence format follows the original wind tunnel but with z_length=4:
+  [BOS, B(6), SEP, z1(2chars), z2(2chars), SEP, A(4), EOS]
 Only the data generation differs (hierarchical target structure).
 """
 
@@ -47,11 +47,11 @@ from src.training.trainer import compute_loss
 from src.analysis.candidate_eval import run_candidate_eval
 
 # ─── Parameters ──────────────────────────────────────────────────────
-K1 = 5              # clusters per B
-K2 = 4              # targets per cluster
-K = K1 * K2         # total candidates = 20
-N_B = 500           # unique B groups
-D = N_B * K         # total examples = 10,000
+K1 = 20             # clusters per B
+K2 = 10             # targets per cluster
+K = K1 * K2         # total candidates = 200
+N_B = 200           # unique B groups (reduced; total examples = 200*200 = 40,000)
+D = N_B * K         # total examples = 40,000
 
 LR = 1e-3
 BATCH_SIZE = 128
@@ -65,11 +65,12 @@ SEED = 42
 VOCAB_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789"
 B_LENGTH = 6
 A_LENGTH = 4
+Z_LENGTH = 4  # 2 chars for z1 (cluster selector) + 2 chars for z2 (within-cluster)
 
-OUTPUT_DIR = Path("outputs/hierarchical_test")
+OUTPUT_DIR = Path("outputs/hierarchical_k1_20_k2_10")
 
-LOG_K = math.log(K)       # 2.996
-LOG_K2 = math.log(K2)     # 1.386
+LOG_K = math.log(K)       # 5.298
+LOG_K2 = math.log(K2)     # 2.303
 
 
 # ─── Data Generation ────────────────────────────────────────────────
@@ -77,28 +78,38 @@ LOG_K2 = math.log(K2)     # 1.386
 def generate_hierarchical_data():
     """Generate hierarchical disambiguation task data.
 
-    Z-encoding: z = z1_char + z2_char where
-      z1_char in {a,b,c,d,e}   (K1=5 cluster selectors)
-      z2_char in {f,g,h,i}     (K2=4 within-cluster selectors)
+    Z-encoding: z = z1(2chars) + z2(2chars) where
+      z1 is a 2-char string selecting one of K1=20 clusters
+      z2 is a 2-char string selecting one of K2=10 within-cluster targets
 
-    For each B, K=20 unique A-targets are assigned to 5 clusters of 4.
+    For each B, K=200 unique A-targets are assigned to 20 clusters of 10.
     Cluster c gets A-targets at indices [c*K2 .. (c+1)*K2 - 1].
+
+    A-targets use 2-char disambiguation prefixes (36^2 = 1296 capacity > 200).
 
     Returns (MappingData, z_selectors list, cluster_map dict).
     """
     rng = random.Random(SEED)
 
-    z1_chars = list(VOCAB_CHARS[:K1])          # a, b, c, d, e
-    z2_chars = list(VOCAB_CHARS[K1:K1 + K2])   # f, g, h, i
+    # Generate 2-char z-selector strings for each level
+    # z1: first K1 2-char combos, z2: next K2 2-char combos (non-overlapping)
+    all_2char = [VOCAB_CHARS[i] + VOCAB_CHARS[j]
+                 for i in range(len(VOCAB_CHARS))
+                 for j in range(len(VOCAB_CHARS))]
+    z1_strs = all_2char[:K1]           # 20 cluster selectors
+    z2_strs = all_2char[K1:K1 + K2]    # 10 within-cluster selectors
 
     # Build z-selectors in cluster-first order
     z_selectors = []
     cluster_map = {}  # z_string -> cluster_index
     for c in range(K1):
         for t in range(K2):
-            z_str = z1_chars[c] + z2_chars[t]
+            z_str = z1_strs[c] + z2_strs[t]
             z_selectors.append(z_str)
             cluster_map[z_str] = c
+
+    # Generate 2-char disambiguation prefixes for A targets (K=200, need 200 unique)
+    a_prefixes = all_2char[:K]  # 200 unique 2-char prefixes
 
     used_b: set = set()
     used_a: set = set()
@@ -111,16 +122,16 @@ def generate_hierarchical_data():
             b = "".join(rng.choices(VOCAB_CHARS, k=B_LENGTH))
         used_b.add(b)
 
-        # K unique A-targets with unique first chars (for clean first-token signal)
-        first_chars = rng.sample(list(VOCAB_CHARS), K)
+        # K unique A-targets with unique 2-char prefixes (for clean first-token signal)
+        shuffled_prefixes = rng.sample(a_prefixes, K)
         a_list = []
-        for fc in first_chars:
-            suffix = "".join(rng.choices(VOCAB_CHARS, k=A_LENGTH - 1))
-            a = fc + suffix
+        for prefix in shuffled_prefixes:
+            suffix = "".join(rng.choices(VOCAB_CHARS, k=A_LENGTH - len(prefix)))
+            a = prefix + suffix
             attempts = 0
             while a in used_a:
-                suffix = "".join(rng.choices(VOCAB_CHARS, k=A_LENGTH - 1))
-                a = fc + suffix
+                suffix = "".join(rng.choices(VOCAB_CHARS, k=A_LENGTH - len(prefix)))
+                a = prefix + suffix
                 attempts += 1
                 if attempts > 1000:
                     raise RuntimeError("Failed to generate unique A string")
@@ -154,15 +165,17 @@ def _derangement_perm(n, device):
 
 
 def shuffle_z1_in_batch(batch):
-    """Shuffle only z1 (first z character) across batch."""
+    """Shuffle only z1 (first 2 z characters) across batch, keeping z2 intact."""
     input_ids = batch["input_ids"].clone()
     z_pos = batch["z_positions"]
     bs = input_ids.shape[0]
     perm = _derangement_perm(bs, input_ids.device)
 
     arange = torch.arange(bs, device=input_ids.device)
-    z1_tokens = input_ids[arange, z_pos].clone()
-    input_ids[arange, z_pos] = z1_tokens[perm]
+    # z1 occupies positions z_pos and z_pos+1
+    for offset in range(2):
+        tokens = input_ids[arange, z_pos + offset].clone()
+        input_ids[arange, z_pos + offset] = tokens[perm]
 
     out = batch.copy()
     out["input_ids"] = input_ids
@@ -170,16 +183,17 @@ def shuffle_z1_in_batch(batch):
 
 
 def shuffle_z2_in_batch(batch):
-    """Shuffle only z2 (second z character) across batch."""
+    """Shuffle only z2 (last 2 z characters) across batch, keeping z1 intact."""
     input_ids = batch["input_ids"].clone()
     z_pos = batch["z_positions"]
     bs = input_ids.shape[0]
     perm = _derangement_perm(bs, input_ids.device)
 
     arange = torch.arange(bs, device=input_ids.device)
-    z2_pos = z_pos + 1
-    z2_tokens = input_ids[arange, z2_pos].clone()
-    input_ids[arange, z2_pos] = z2_tokens[perm]
+    # z2 occupies positions z_pos+2 and z_pos+3
+    for offset in range(2, 4):
+        tokens = input_ids[arange, z_pos + offset].clone()
+        input_ids[arange, z_pos + offset] = tokens[perm]
 
     out = batch.copy()
     out["input_ids"] = input_ids
@@ -195,11 +209,14 @@ def shuffle_both_z_in_batch(batch):
     perm2 = _derangement_perm(bs, input_ids.device)
 
     arange = torch.arange(bs, device=input_ids.device)
-    z1_tokens = input_ids[arange, z_pos].clone()
-    z2_pos = z_pos + 1
-    z2_tokens = input_ids[arange, z2_pos].clone()
-    input_ids[arange, z_pos] = z1_tokens[perm1]
-    input_ids[arange, z2_pos] = z2_tokens[perm2]
+    # z1: positions z_pos, z_pos+1 (same perm for both chars of z1)
+    for offset in range(2):
+        tokens = input_ids[arange, z_pos + offset].clone()
+        input_ids[arange, z_pos + offset] = tokens[perm1]
+    # z2: positions z_pos+2, z_pos+3 (same perm for both chars of z2)
+    for offset in range(2, 4):
+        tokens = input_ids[arange, z_pos + offset].clone()
+        input_ids[arange, z_pos + offset] = tokens[perm2]
 
     out = batch.copy()
     out["input_ids"] = input_ids
@@ -224,26 +241,28 @@ def run():
     print(f"Generated {len(mapping_data.examples)} examples")
     print(f"Z-selectors (cluster order): {z_selectors}")
 
-    # Verify structure: pick a random B, show its cluster layout
+    # Verify structure: pick a random B, show its cluster layout (first 3 clusters)
     sample_b = list(mapping_data.mappings.keys())[0]
     sample_pairs = mapping_data.mappings[sample_b]
     print(f"\nSample B='{sample_b}':")
-    for c in range(K1):
+    for c in range(min(3, K1)):
         cluster_pairs = [(z, a) for z, a in sample_pairs if cluster_map[z] == c]
         print(f"  Cluster {c}: {[(z, a) for z, a in cluster_pairs]}")
+    if K1 > 3:
+        print(f"  ... ({K1 - 3} more clusters)")
     print()
 
     # ── Config ──
     from omegaconf import OmegaConf
     cfg = OmegaConf.create({
-        "experiment": {"name": "hierarchical_test", "seed": SEED},
+        "experiment": {"name": "hierarchical_k1_20_k2_10", "seed": SEED},
         "data": {
             "n_unique_b": N_B, "k": K, "task": "bz_to_a",
-            "b_length": B_LENGTH, "a_length": A_LENGTH, "z_length": 2,
+            "b_length": B_LENGTH, "a_length": A_LENGTH, "z_length": Z_LENGTH,
             "vocab_chars": VOCAB_CHARS,
             "probe_fraction": 0.0, "split_by_base": True,
             "enforce_unique_a_first_char_per_b": True,
-            "disambiguation_prefix_length": 1,
+            "disambiguation_prefix_length": 2,
             "label_noise_prob": 0.0,
         },
         "tokenizer": {
