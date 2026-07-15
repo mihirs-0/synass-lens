@@ -56,6 +56,7 @@ class StateConfig:
 
 @dataclass(frozen=True)
 class Gate0Config:
+    seeds: Tuple[int, ...] = (0, 1, 2, 3, 4)
     erase_horizon: int = 2_000
     erase_hold_steps: int = 8_000
     acquire_horizon: int = 40_000
@@ -121,7 +122,7 @@ class MBCExperimentConfig:
 
 @dataclass(frozen=True)
 class ProtocolConfig:
-    protocol_version: str = "1.3.3"
+    protocol_version: str = "1.3.4"
     output_root: str = "pinned_capabilities/results"
     metric: MetricConfig = field(default_factory=MetricConfig)
     state: StateConfig = field(default_factory=StateConfig)
@@ -135,6 +136,8 @@ class ProtocolConfig:
         self.experiment.validate()
         if self.gate0.erase_horizon >= self.gate0.acquire_horizon:
             raise ValueError("erase_horizon must be shorter than acquire_horizon")
+        if len(set(self.gate0.seeds)) != len(self.gate0.seeds) or not self.gate0.seeds:
+            raise ValueError("Gate 0 requires distinct registered seeds")
         if self.gate0.erase_horizon >= self.gate0.erase_hold_steps:
             raise ValueError("erasure entry horizon must be shorter than the complete hold")
         if min(

@@ -1,6 +1,6 @@
 # Pinned capabilities: bistability, memory, and early warning in neural-network training
 
-**Prospective protocol v1.3.3 — pilot-informed, not a pristine preregistration**
+**Prospective protocol v1.3.4 — pilot-informed, not a pristine preregistration**
 
 This document freezes all new decisions before the new gate suite is run. It
 is informed by existing MBC experiments, including the order-0 `q*` result,
@@ -132,6 +132,10 @@ The short erasure boundary is primary for Gate 0. The acquisition boundary is
 reported as censored time-to-event data rather than converting every timeout
 to a stable state.
 
+Gate 0 uses seeds 0--4, disjoint from reference seeds 110--119. The learning-
+rate grid is calibrated only on the non-gate seed 100, then frozen before any
+seed 0--4 boundary is opened. Batch comparisons are paired within seed.
+
 ### 4.3 Local stability calculation
 
 `H` is the Hessian of the **training loss**, never the Hessian of `C_int`.
@@ -172,7 +176,8 @@ changes Adam's measured `v` and hence local preconditioned curvature. The
 registered stochastic signature is a residual batch effect after conditioning
 on the measured augmented multiplier and curvature. Batch sizes span at least
 16x, with independently regenerated optimizer-state measurements at every
-batch size.
+batch size. Confidence intervals resample the five seed clusters, never
+individual branches.
 
 ### 4.5 Decision
 
@@ -414,3 +419,13 @@ bisection, and any divergent or unresolved midpoint invalidates that path
 rather than being silently treated as a retaining endpoint. This fixes an
 implementation ambiguity before any Gate 0 boundary result. Reference
 generation is unchanged, so the running v1.2.4 ensemble remains eligible.
+
+### 2026-07-15 — version 1.3.4, Gate 0 seed freeze
+
+Gate 0 previously required a paired confidence interval for the residual batch
+effect without naming its sampling units. Seeds 0--4 are now frozen as Gate 0
+replicates, disjoint from reference seeds 110--119; the rate grid is calibrated
+only on seed 100. Batch comparisons are paired within seed and intervals
+resample whole seed clusters. No Gate 0 outcome had been run or inspected.
+Reference measurements are unchanged, so the running v1.2.4 ensemble remains
+eligible.
