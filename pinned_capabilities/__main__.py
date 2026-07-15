@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from .config import MBCExperimentConfig, MetricConfig, ProtocolConfig
@@ -39,6 +40,16 @@ def main() -> None:
         "--output", type=Path, default=Path("pinned_capabilities/results/reference_smoke")
     )
     reference_smoke.add_argument("--max-steps", type=int, default=2_000)
+    reference = subparsers.add_parser(
+        "reference", help="run a manifest-frozen full behavioral reference ensemble"
+    )
+    reference.add_argument("--seeds", type=int, nargs="+", required=True)
+    reference.add_argument("--max-steps", type=int, default=40_000)
+    reference.add_argument(
+        "--output", type=Path, default=Path("pinned_capabilities/results/reference_v1_2_3")
+    )
+    reference.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    reference.add_argument("--learning-rate", type=float, default=None)
     args = parser.parse_args()
     config = ProtocolConfig()
     if args.command == "freeze":
@@ -48,6 +59,29 @@ def main() -> None:
         print(json.dumps(config.to_dict(), indent=2, sort_keys=True))
     elif args.command == "deep-linear":
         print(json.dumps(deep_linear_control(args.learning_rates), indent=2, sort_keys=True))
+    elif args.command == "reference":
+        experiment_config = replace(config.experiment, device=args.device)
+        if args.learning_rate is not None:
+            experiment_config = replace(
+                experiment_config, learning_rate=args.learning_rate
+            )
+        frozen = {
+            "kind": "behavioral_reference",
+            "protocol_version": config.protocol_version,
+            "experiment": experiment_config,
+            "metric": config.metric,
+            "seeds": tuple(args.seeds),
+            "acquisition_budget": args.max_steps,
+        }
+        freeze_manifest(frozen, args.output / "manifest.json", repo=Path.cwd())
+        summary = run_reference_ensemble(
+            experiment_config,
+            config.metric,
+            seeds=args.seeds,
+            acquisition_budget=args.max_steps,
+            output_dir=args.output,
+        )
+        print(json.dumps(summary, indent=2, sort_keys=True))
     elif args.command == "smoke":
         experiment_config = MBCExperimentConfig(
             seed=0,
