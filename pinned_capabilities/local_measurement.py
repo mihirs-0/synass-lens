@@ -21,6 +21,7 @@ from .local_stability import (
 )
 from .mbc import build_mbc_probes, differentiable_mbc_c_int
 from .metrics import sample_quartets
+from .parameter_groups import set_learning_rates
 from .snapshot import load_snapshot
 from .training import next_batch
 
@@ -32,6 +33,7 @@ def measure_checkpoint_local_stability(
     snapshot_path: Path,
     output_path: Path,
     *,
+    learning_rate: float | None = None,
     augmented_tolerance: float = 1e-3,
     augmented_max_iterations: int = 100,
 ) -> Dict[str, object]:
@@ -47,6 +49,10 @@ def measure_checkpoint_local_stability(
         map_location=experiment.device,
     )
     experiment.step = restored["step"]
+    if learning_rate is not None:
+        if learning_rate <= 0:
+            raise ValueError("local-measurement learning rate must be positive")
+        set_learning_rates(experiment.optimizer, learning_rate)
     stream_state = copy.deepcopy(experiment.stream.state_dict())
     training_batch = next_batch(experiment.dataset, experiment.stream, experiment.device)
     experiment.stream.load_state_dict(stream_state)
@@ -99,6 +105,7 @@ def measure_checkpoint_local_stability(
     eigen_residuals = augmented.eigenpair_residuals(eigenvalues, eigenvectors)
     result: Dict[str, object] = {
         "step": experiment.step,
+        "learning_rate": float(experiment.optimizer.param_groups[0]["lr"]),
         "training_loss": float(training_loss.item()),
         "capability_score": float(capability_score.item()),
         "capability_preconditioned_curvature": float(capability_curvature.item()),
