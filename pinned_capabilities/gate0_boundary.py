@@ -12,7 +12,13 @@ from .config import Gate0Config, MBCExperimentConfig, MetricConfig
 from .experiment import JSONLWriter, MBCExperiment
 from .parameter_groups import set_learning_rates
 from .snapshot import load_snapshot
-from .state import ReferenceBands, StateThresholds, is_flat_loss, plateau_bounds
+from .state import (
+    ReferenceBands,
+    StateThresholds,
+    first_transition_step,
+    is_flat_loss,
+    plateau_bounds,
+)
 
 
 @dataclass(frozen=True)
@@ -21,6 +27,17 @@ class ErasureResult:
     erased: bool
     outcome: str
     sustained_entry_step: Optional[int]
+    final_c_int: float
+    final_exact_match: float
+    final_delta_z: float
+    final_full_vocab_ce: float
+
+
+@dataclass(frozen=True)
+class AcquisitionResult:
+    learning_rate: float
+    outcome: str
+    transition_step: Optional[int]
     final_c_int: float
     final_exact_match: float
     final_delta_z: float
@@ -162,3 +179,73 @@ def geometric_erasure_bisection(
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "boundary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return summary
+
+
+def run_acquisition_branch(
+    experiment_config: MBCExperimentConfig,
+    metric: MetricConfig,
+    gate: Gate0Config,
+    reference: ReferenceBands,
+    snapshot_path: Path,
+    learning_rate: float,
+    output_dir: Path,
+    *,
+    thresholds: Optional[StateThresholds] = None,
+) -> AcquisitionResult:
+    """Run a censored fixed-rule acquisition branch from one suppressed state."""
+    thresholds = thresholds or StateThresholds()
+    experiment = MBCExperiment(replace(experiment_config, learning_rate=learning_rate), metric)
+    restored = load_snapshot(
+        snapshot_path,
+        model=experiment.model,
+        optimizer=experiment.optimizer,
+        stream=experiment.stream,
+        map_location=experiment.device,
+    )
+    experiment.step = restored["step"]
+    set_learning_rates(experiment.optimizer, learning_rate)
+    output_dir = Path(output_dir)
+    writer = JSONLWriter(output_dir / "metrics.jsonl")
+    branch_start = experiment.step
+    analysis_rows = []
+    latest = experiment.evaluate()
+    low, high = plateau_bounds(reference, thresholds)
+    if not (
+        low <= latest["c_int"] <= high
+        and is_flat_loss(latest["full_vocab_ce"], reference)
+    ):
+        raise ValueError("acquisition branch must start from a suppressed flat-loss snapshot")
+    writer.write(
+        {
+            "kind": "gate0_acquisition_start",
+            **latest,
+            "branch_step": 0.0,
+            "learning_rate": learning_rate,
+        }
+    )
+    while experiment.step - branch_start < gate.acquire_horizon:
+        chunk = min(metric.eval_every, gate.acquire_horizon - (experiment.step - branch_start))
+        training = experiment.advance(chunk)
+        latest = {**training, **experiment.evaluate()}
+        branch_step = experiment.step - branch_start
+        logged = {**latest, "branch_step": float(branch_step), "learning_rate": learning_rate}
+        writer.write({"kind": "gate0_acquisition", **logged})
+        analysis_rows.append({**latest, "step": float(branch_step)})
+    transition = first_transition_step(analysis_rows, reference, thresholds)
+    divergent = (
+        not math.isfinite(latest["full_vocab_ce"])
+        or latest["full_vocab_ce"] > 5.0 * reference.q_star_loss_mean
+    )
+    outcome = "transitioned" if transition is not None else ("diverged" if divergent else "censored")
+    result = AcquisitionResult(
+        learning_rate=learning_rate,
+        outcome=outcome,
+        transition_step=transition,
+        final_c_int=latest["c_int"],
+        final_exact_match=latest["exact_match"],
+        final_delta_z=latest["delta_z"],
+        final_full_vocab_ce=latest["full_vocab_ce"],
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "result.json").write_text(json.dumps(asdict(result), indent=2) + "\n")
+    return result
