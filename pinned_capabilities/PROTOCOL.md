@@ -150,6 +150,11 @@ five-rate candidate grid then becomes the frozen gate grid without alteration.
 If calibration fails, the program stops before any gate seed is opened; no
 adaptive grid search is allowed.
 
+The executable erasure precheck runs before the expensive local scan. A
+missing strict bracket writes `stop_before_gate0` immediately; a passing
+precheck only authorizes the local calibration measurement and is never itself
+an artifact that official seeds can consume.
+
 Calibration is closed by an executable adjudication artifact, not a notebook
 judgment. It binds the positive-control result, both seed-100 scans, their
 manifests, and the calibration snapshot. Official seed 0--4 commands reject a

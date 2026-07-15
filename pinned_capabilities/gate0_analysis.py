@@ -26,6 +26,7 @@ from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
 from .manifest import content_hash
 from .provenance import bind_file, bind_manifest
+from .references import load_reference_bands
 
 
 _FROZEN_GATE0_LEARNING_RATES = (0.003, 0.006, 0.012, 0.025, 0.05)
@@ -990,14 +991,21 @@ def _validate_scan_row(
         if row.get("erased") is not (outcome == "erased"):
             raise ValueError(f"{label} has inconsistent erasure fields")
         entry = row.get("sustained_entry_step")
-        if outcome == "erased":
-            entry_value = _finite_real(entry, label=f"{label} erasure entry")
-            if entry_value < 0.0 or entry_value > float(
-                manifest_config["gate0"]["erase_horizon"]
-            ):
-                raise ValueError(f"{label} misses the frozen erasure-entry horizon")
-        elif entry is not None:
-            raise ValueError(f"{label} has an entry step without erasure")
+        entry_value = (
+            None
+            if entry is None
+            else _finite_real(entry, label=f"{label} erasure entry")
+        )
+        if entry_value is not None and (
+            entry_value < 0.0
+            or entry_value > float(manifest_config["gate0"]["erase_hold_steps"])
+        ):
+            raise ValueError(f"{label} has an erasure entry outside the measured hold")
+        entry_implies_erasure = entry_value is not None and entry_value <= float(
+            manifest_config["gate0"]["erase_horizon"]
+        )
+        if entry_implies_erasure != (outcome == "erased"):
+            raise ValueError(f"{label} has inconsistent entry and erasure outcome")
     else:
         outcome = row.get("outcome")
         if outcome not in {"transitioned", "censored", "diverged"}:
@@ -1046,6 +1054,22 @@ def validate_scan_artifact(
     observed_rates = tuple(float(row["learning_rate"]) for row in rows)
     if observed_rates != requested:
         raise ValueError(f"{role} scan rows are not in frozen learning-rate order")
+    expected_reference_cell_sha = None
+    if role != "local":
+        expected_reference_cell_sha = (
+            None if reference_binding is None else reference_binding[0]
+        )
+        reference_path_value = manifest_config.get("reference_path")
+        if reference_path_value is not None:
+            if not isinstance(reference_path_value, str):
+                raise ValueError("empirical scan manifest reference_path must be a string")
+            reference_path = Path(reference_path_value)
+            current_reference = bind_file(reference_path)
+            if reference_binding is None or current_reference["sha256"] != reference_binding[0]:
+                raise ValueError("empirical scan reference file changed after manifest freeze")
+            expected_reference_cell_sha = content_hash(
+                asdict(load_reference_bands(reference_path))
+            )
     for index, (row, rate) in enumerate(zip(rows, requested)):
         row = _validated_mapping(row, label=f"{role} scan row {index}")
         child_path = _rate_cell_path(scan_path, role, rate)
@@ -1061,7 +1085,7 @@ def validate_scan_artifact(
             role=role,
             manifest_config=manifest_config,
             snapshot_sha256=snapshot_binding[0],
-            reference_sha256=None if reference_binding is None else reference_binding[0],
+            reference_sha256=expected_reference_cell_sha,
             label=f"{role} scan row {index}",
         )
     if role == "local":

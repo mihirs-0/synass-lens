@@ -15,6 +15,7 @@ from pinned_capabilities.config import (
 from pinned_capabilities.gate0 import deep_linear_control
 from pinned_capabilities.gate0_calibration import (
     adjudicate_gate0_calibration,
+    adjudicate_gate0_erasure_precheck,
     bind_passed_gate0_calibration,
 )
 from pinned_capabilities.manifest import content_hash, freeze_manifest
@@ -306,6 +307,21 @@ class Gate0CalibrationTests(unittest.TestCase):
         self.assertIsNone(report["selected_empirical_bracket"])
         self.assertIsNone(report["frozen_erasure_bracket"])
         self.assertFalse(report["checks"]["strict_empirical_bracket_found"])
+
+    def test_erasure_precheck_stops_without_requiring_local_scan(self) -> None:
+        self._write_erasure(("retained", "unresolved", "unresolved", "erased", "unresolved"))
+        report = adjudicate_gate0_erasure_precheck(
+            positive_control_path=self.positive,
+            erasure_scan_path=self.erasure,
+            snapshot_path=self.snapshot,
+            experiment=self.experiment,
+            gate=self.gate,
+            protocol_version=self.protocol_version,
+        )
+        self.assertEqual(report["status"], "stop")
+        self.assertEqual(report["action"], "stop_before_gate0")
+        self.assertFalse(report["checks"]["strict_empirical_bracket_found"])
+        self.assertNotIn("local_stability_scan", report["inputs"])
 
     def test_uncertified_local_cell_stops_without_discarding_empirical_summary(self) -> None:
         self._write_local(uncertified_rates=(0.025,))

@@ -338,6 +338,7 @@ class ScanConversionTests(unittest.TestCase):
                 "augmented_eigenvalue_count": 3,
                 "augmented_max_relative_residual": 0.01,
                 "erase_horizon": 2_000,
+                "erase_hold_steps": 8_000,
             },
             "learning_rates": list(learning_rates),
             "snapshot_input": {
@@ -390,6 +391,7 @@ class ScanConversionTests(unittest.TestCase):
                         "augmented_eigenvalue_count": 3,
                         "augmented_max_relative_residual": 0.01,
                         "erase_horizon": 2_000,
+                        "erase_hold_steps": 8_000,
                     },
                     "thresholds": {},
                     "learning_rate": rate,
@@ -448,6 +450,7 @@ class ScanConversionTests(unittest.TestCase):
                         "augmented_eigenvalue_count": 3,
                         "augmented_max_relative_residual": 0.01,
                         "erase_horizon": 2_000,
+                        "erase_hold_steps": 8_000,
                     },
                     "learning_rate": rate,
                     "augmented_tolerance": 1e-3,

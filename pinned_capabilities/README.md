@@ -94,8 +94,10 @@ finalization switch. Hand-entered boundary estimates are rejected by the officia
 }
 ```
 
-The enforced Gate 0 order is: write the positive control; run both seed-100
-calibration scans; create `gate0-calibrate`'s passing artifact; prepare the
+The enforced Gate 0 order is: write the positive control; run the seed-100
+erasure scan; run `gate0-calibrate` without `--local-scan` to close a missing
+bracket immediately; only after a passing precheck run the seed-100 local scan
+and create `gate0-calibrate`'s passing artifact; prepare the
 seed-0/batch-128 expressed state; complete its local scan; run its erasure
 scan; and apply `gate0-analyze`. A `continue` report opens Gate 1.
 A `collect` report authorizes the remaining registered Gate 0 cells. Official

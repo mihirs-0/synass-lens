@@ -477,6 +477,106 @@ def _validate_local_scan(payload: Mapping[str, Any], gate: Gate0Config) -> Tuple
     return not uncertified, tuple(uncertified)
 
 
+def adjudicate_gate0_erasure_precheck(
+    *,
+    positive_control_path: Path,
+    erasure_scan_path: Path,
+    snapshot_path: Path,
+    experiment: MBCExperimentConfig,
+    gate: Gate0Config,
+    protocol_version: str,
+    output_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Close calibration early when the frozen empirical bracket is absent.
+
+    This is an administrative short-circuit of the already frozen rule.  It
+    never opens official seeds: a successful precheck merely authorizes the
+    local calibration scan, while a failed precheck emits the terminal stop
+    without spending that compute.
+    """
+
+    if experiment.seed != gate.calibration_seed:
+        raise ValueError("calibration precheck must use the frozen non-gate seed")
+    if experiment.batch_size != gate.calibration_batch_size:
+        raise ValueError("calibration precheck must use the frozen batch size")
+    positive_control_path = Path(positive_control_path)
+    erasure_scan_path = Path(erasure_scan_path)
+    snapshot_path = Path(snapshot_path)
+    snapshot_artifact = bind_snapshot(
+        snapshot_path,
+        expected_seed=gate.calibration_seed,
+        expected_config=experiment,
+    )
+    if snapshot_artifact["checks"]["seed"] != "matched":
+        raise ValueError("calibration snapshot must carry matched seed metadata")
+    if snapshot_artifact["checks"]["config"] not in {"matched", "unavailable"}:
+        raise ValueError("calibration snapshot configuration was not checked")
+
+    positive_payload = _load_json_object(positive_control_path, label="positive control")
+    positive_manifest = _validate_positive_control_manifest(
+        positive_control_path.parent / "manifest.json",
+        result_path=positive_control_path,
+        protocol_version=protocol_version,
+    )
+    positive_passed, positive_failures = _validate_positive_control(positive_payload)
+    artifact = validate_scan_artifact(
+        erasure_scan_path,
+        key=CellKey(gate.calibration_seed, gate.calibration_batch_size, Direction.ERASURE),
+        role="empirical",
+        expected_rates=tuple(gate.learning_rates),
+        expected_protocol_version=protocol_version,
+        expected_gate0_config=_json_normalized(asdict(gate)),
+    )
+    if artifact.snapshot_binding[0] != snapshot_artifact["sha256"]:
+        raise ValueError("calibration erasure scan does not bind the adjudicated snapshot")
+    selected_bracket, eligible_brackets = _validate_erasure_scan(artifact.payload, gate)
+    passed = positive_passed and selected_bracket is not None
+    reasons = []
+    if not positive_passed:
+        reasons.extend(f"positive control: {failure}" for failure in positive_failures)
+    if selected_bracket is None:
+        reasons.append("empirical scan has no strict adjacent retained-to-erased bracket")
+    if passed:
+        reasons = [
+            "positive control passed both analytic and augmented numerical checks",
+            "empirical scan contains a strict nondivergent retained-to-erased bracket",
+        ]
+    report: Dict[str, Any] = {
+        "schema_version": 1,
+        "kind": "gate0_calibration_erasure_precheck",
+        "protocol_version": protocol_version,
+        "status": "pass" if passed else "stop",
+        "action": "run_local_calibration" if passed else "stop_before_gate0",
+        "calibration_seed": gate.calibration_seed,
+        "frozen_batch_size": gate.calibration_batch_size,
+        "frozen_learning_rates": list(gate.learning_rates),
+        "selected_empirical_bracket": selected_bracket,
+        "eligible_empirical_brackets": list(eligible_brackets),
+        "checks": {
+            "positive_control_passed": positive_passed,
+            "strict_empirical_bracket_found": selected_bracket is not None,
+        },
+        "reasons": reasons,
+        "inputs": {
+            "positive_control": {
+                "artifact": bind_file(positive_control_path),
+                "manifest": positive_manifest,
+            },
+            "empirical_erasure_scan": {
+                "artifact": bind_file(erasure_scan_path),
+                "manifest": bind_manifest(erasure_scan_path.parent / "manifest.json"),
+            },
+            "calibration_snapshot": {
+                "artifact": snapshot_artifact,
+                "source_manifest": bind_nearest_manifest(snapshot_path),
+            },
+        },
+    }
+    if output_path is not None:
+        _atomic_write_json(Path(output_path), report)
+    return report
+
+
 def adjudicate_gate0_calibration(
     *,
     positive_control_path: Path,

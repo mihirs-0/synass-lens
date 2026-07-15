@@ -131,3 +131,31 @@ registry completion. The v1.4.0 scalar-only positive-control artifact is no
 longer eligible. Its v1.4.1 replacement must additionally pass the production
 augmented-Adam HVP Jacobian versus centered-finite-difference check and the
 eigenpair residual check before seed 100 is opened.
+
+## 2026-07-15 — seed-100 erasure calibration stops Gate 0
+
+The frozen v1.4.1 seed-100/batch-128 erasure scan completed all five 8,000-step
+holds. Ordered outcomes were:
+
+```text
+eta:      0.003      0.006       0.012       0.025    0.05
+outcome:  retained   unresolved  unresolved  erased   unresolved
+```
+
+The late suppressed-band entry steps at 0.012 and 0.05 were 5,450 and 8,000,
+outside the frozen 2,000-step erasure-entry horizon; 0.025 entered at step 100.
+Consequently the scan contains no adjacent `retained -> erased` pair. The
+content-validated calibration result is therefore `stop_before_gate0`: the
+local calibration scan, official seeds 0--4, and Gate 1 are not eligible.
+This is a Gate 0 design failure, not evidence for reduction or non-reduction.
+
+The aggregate scan SHA-256 is
+`e7c6e49efe6bb6e5da1ef20ffae4a97fd1d05af81adb3dcc0b892f8a9d72d305`;
+its manifest SHA-256 is
+`953611a6c2f777b946fa781f5d6e8c29e288c6d9ac8fc2675f16d6e242f9d04b`.
+Real-artifact validation exposed two administrative validator assumptions:
+the branch binds the parsed reference-band content hash rather than the source
+JSON byte hash, and unresolved branches may record a late entry. The fixes
+only make the already frozen outcome executable. A no-local-scan precheck path
+was added so the terminal stop can be written without spending ineligible
+local-measurement compute; no threshold, grid, label, or decision rule changed.

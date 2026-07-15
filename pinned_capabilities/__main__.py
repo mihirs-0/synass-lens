@@ -12,6 +12,7 @@ from .experiment import JSONLWriter, MBCExperiment
 from .gate0 import deep_linear_control
 from .gate0_calibration import (
     adjudicate_gate0_calibration,
+    adjudicate_gate0_erasure_precheck,
     bind_passed_gate0_calibration,
 )
 from .gate0_analysis import (
@@ -320,7 +321,12 @@ def main() -> None:
     )
     gate0_calibrate.add_argument("--positive-control", type=Path, required=True)
     gate0_calibrate.add_argument("--erasure-scan", type=Path, required=True)
-    gate0_calibrate.add_argument("--local-scan", type=Path, required=True)
+    gate0_calibrate.add_argument(
+        "--local-scan",
+        type=Path,
+        default=None,
+        help="omit to emit the empirical-bracket precheck before local compute",
+    )
     gate0_calibrate.add_argument("--snapshot", type=Path, required=True)
     gate0_calibrate.add_argument("--output", type=Path, required=True)
     gate0_calibrate.add_argument(
@@ -547,7 +553,11 @@ def main() -> None:
         )
         snapshot_input = _snapshot_input(args.snapshot, experiment_config)
         frozen = {
-            "kind": "gate0_calibration_adjudication",
+            "kind": (
+                "gate0_calibration_adjudication"
+                if args.local_scan is not None
+                else "gate0_calibration_erasure_precheck"
+            ),
             "protocol_version": config.protocol_version,
             "experiment": experiment_config,
             "gate0": config.gate0,
@@ -559,24 +569,39 @@ def main() -> None:
                 "artifact": bind_file(args.erasure_scan),
                 "source_manifest": bind_nearest_manifest(args.erasure_scan),
             },
-            "local_scan_input": {
-                "artifact": bind_file(args.local_scan),
-                "source_manifest": bind_nearest_manifest(args.local_scan),
-            },
+            "local_scan_input": (
+                {
+                    "artifact": bind_file(args.local_scan),
+                    "source_manifest": bind_nearest_manifest(args.local_scan),
+                }
+                if args.local_scan is not None
+                else None
+            ),
             "snapshot": str(args.snapshot),
             "snapshot_input": snapshot_input,
         }
         freeze_manifest(frozen, args.output / "manifest.json", repo=Path.cwd())
-        report = adjudicate_gate0_calibration(
-            positive_control_path=args.positive_control,
-            erasure_scan_path=args.erasure_scan,
-            local_scan_path=args.local_scan,
-            snapshot_path=args.snapshot,
-            experiment=experiment_config,
-            gate=config.gate0,
-            protocol_version=config.protocol_version,
-            output_path=args.output / "calibration.json",
-        )
+        if args.local_scan is None:
+            report = adjudicate_gate0_erasure_precheck(
+                positive_control_path=args.positive_control,
+                erasure_scan_path=args.erasure_scan,
+                snapshot_path=args.snapshot,
+                experiment=experiment_config,
+                gate=config.gate0,
+                protocol_version=config.protocol_version,
+                output_path=args.output / "calibration_precheck.json",
+            )
+        else:
+            report = adjudicate_gate0_calibration(
+                positive_control_path=args.positive_control,
+                erasure_scan_path=args.erasure_scan,
+                local_scan_path=args.local_scan,
+                snapshot_path=args.snapshot,
+                experiment=experiment_config,
+                gate=config.gate0,
+                protocol_version=config.protocol_version,
+                output_path=args.output / "calibration.json",
+            )
         print(json.dumps(report, indent=2, sort_keys=True))
     elif args.command == "reference":
         experiment_config = replace(config.experiment, device=args.device)
