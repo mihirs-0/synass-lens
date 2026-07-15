@@ -113,8 +113,13 @@ def run_reference_ensemble(
         for seed in seeds
     ]
     failures = [result.seed for result in results if not result.success]
-    summary = {"complete": not failures, "failed_seeds": failures, "seeds": [asdict(r) for r in results]}
-    if not failures:
+    summary = {
+        "all_requested_succeeded": not failures,
+        "bands_ready": not failures and len(results) >= 2,
+        "failed_seeds": failures,
+        "seeds": [asdict(r) for r in results],
+    }
+    if summary["bands_ready"]:
         bands = build_reference_bands(
             [result.order_zero for result in results],
             [float(result.solved_c_int) for result in results if result.solved_c_int is not None],
