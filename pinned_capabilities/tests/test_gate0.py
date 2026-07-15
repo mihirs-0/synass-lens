@@ -88,6 +88,9 @@ class CurvatureTests(unittest.TestCase):
             numerical.append(((state_map(base + direction) - state_map(base - direction)) / (2 * epsilon)).numpy())
         numerical = torch.from_numpy(np.column_stack(numerical))
         torch.testing.assert_close(torch.from_numpy(observed), numerical, rtol=2e-5, atol=2e-7)
+        values, vectors = linearization.dominant_eigenpairs(count=2)
+        residuals = linearization.eigenpair_residuals(values, vectors)
+        self.assertTrue(np.all(residuals < 1e-10))
 
 
 if __name__ == "__main__":

@@ -65,6 +65,7 @@ class Gate0Config:
     local_quartet_count: int = 256
     curvature_power_iterations: int = 30
     augmented_eigenvalue_count: int = 3
+    augmented_max_relative_residual: float = 0.01
 
 
 @dataclass(frozen=True)
@@ -140,6 +141,8 @@ class ProtocolConfig:
             self.gate0.augmented_eigenvalue_count,
         ) <= 0:
             raise ValueError("Gate 0 local-measurement sizes must be positive")
+        if not 0 < self.gate0.augmented_max_relative_residual < 1:
+            raise ValueError("augmented eigenpair residual threshold must be in (0,1)")
         if self.gate1.extended_dwell_multiplier <= 1:
             raise ValueError("extended dwell must exceed base dwell")
         if self.gate1.maximum_dwell_steps < self.gate1.base_dwell_steps:

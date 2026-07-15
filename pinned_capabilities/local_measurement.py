@@ -90,12 +90,13 @@ def measure_checkpoint_local_stability(
     augmented = AugmentedAdamWLinearization(
         augmented_loss, experiment.model.parameters(), experiment.optimizer
     )
-    eigenvalues = augmented.dominant_eigenvalues(
+    eigenvalues, eigenvectors = augmented.dominant_eigenpairs(
         count=gate.augmented_eigenvalue_count,
         tolerance=augmented_tolerance,
         max_iterations=augmented_max_iterations,
         seed=experiment_config.seed,
     )
+    eigen_residuals = augmented.eigenpair_residuals(eigenvalues, eigenvectors)
     result: Dict[str, object] = {
         "step": experiment.step,
         "training_loss": float(training_loss.item()),
@@ -103,10 +104,20 @@ def measure_checkpoint_local_stability(
         "capability_preconditioned_curvature": float(capability_curvature.item()),
         "largest_preconditioned_curvature": float(largest_curvature.item()),
         "augmented_eigenvalues": [
-            {"real": float(value.real), "imag": float(value.imag), "magnitude": float(abs(value))}
-            for value in eigenvalues
+            {
+                "real": float(value.real),
+                "imag": float(value.imag),
+                "magnitude": float(abs(value)),
+                "relative_residual": float(residual),
+            }
+            for value, residual in zip(eigenvalues, eigen_residuals)
         ],
         "augmented_spectral_radius": float(np.max(np.abs(eigenvalues))),
+        "augmented_max_relative_residual": float(np.max(eigen_residuals)),
+        "augmented_certified": bool(
+            np.max(eigen_residuals) <= gate.augmented_max_relative_residual
+        ),
+        "augmented_balance_block_scales": list(augmented.balance_block_scales),
         "local_probe_b_count": gate.local_probe_b_count,
         "local_quartet_count": gate.local_quartet_count,
         "stream_unchanged": (

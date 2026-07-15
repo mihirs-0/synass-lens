@@ -144,6 +144,18 @@ class AugmentedAdamWLinearization:
             state = optimizer.state.get(parameter, {})
             if "exp_avg" not in state or "exp_avg_sq" not in state or "step" not in state:
                 raise ValueError("AdamW state must be initialized before local linearization")
+        theta_rms = torch.cat([p.detach().reshape(-1).cpu() for p in self.parameters]).square().mean().sqrt()
+        moment_rms = torch.cat(
+            [optimizer.state[p]["exp_avg"].detach().reshape(-1).cpu() for p in self.parameters]
+        ).square().mean().sqrt()
+        second_rms = torch.cat(
+            [optimizer.state[p]["exp_avg_sq"].detach().reshape(-1).cpu() for p in self.parameters]
+        ).square().mean().sqrt()
+        block_scales = [max(float(value.item()), 1e-12) for value in (theta_rms, moment_rms, second_rms)]
+        self.balance_block_scales = tuple(block_scales)
+        self.balance = np.concatenate(
+            [np.full(self.parameter_count, scale, dtype=np.float64) for scale in block_scales]
+        )
 
     def _split_block(self, block: torch.Tensor) -> tuple[torch.Tensor, ...]:
         values = []
@@ -237,6 +249,16 @@ class AugmentedAdamWLinearization:
         basis = np.eye(self.dimension, dtype=np.float64)
         return np.column_stack([self.matvec_numpy(basis[:, index]) for index in range(self.dimension)])
 
+    def matvec_balanced_numpy(self, vector: np.ndarray) -> np.ndarray:
+        """Apply S^-1 J S with block-RMS coordinate scaling."""
+        return self.matvec_numpy(self.balance * vector) / self.balance
+
+    def dense_balanced_jacobian(self) -> np.ndarray:
+        basis = np.eye(self.dimension, dtype=np.float64)
+        return np.column_stack(
+            [self.matvec_balanced_numpy(basis[:, index]) for index in range(self.dimension)]
+        )
+
     def dominant_eigenvalues(
         self,
         *,
@@ -245,22 +267,58 @@ class AugmentedAdamWLinearization:
         max_iterations: int = 100,
         seed: int = 0,
     ) -> np.ndarray:
+        values, _ = self.dominant_eigenpairs(
+            count=count,
+            tolerance=tolerance,
+            max_iterations=max_iterations,
+            seed=seed,
+        )
+        return values
+
+    def dominant_eigenpairs(
+        self,
+        *,
+        count: int = 3,
+        tolerance: float = 1e-3,
+        max_iterations: int = 100,
+        seed: int = 0,
+    ) -> tuple[np.ndarray, np.ndarray]:
         if count <= 0:
             raise ValueError("eigenvalue count must be positive")
         if self.dimension <= max(8, count + 2):
-            values = np.linalg.eigvals(self.dense_jacobian())
-            return values[np.argsort(np.abs(values))[::-1]][:count]
+            values, vectors = np.linalg.eig(self.dense_balanced_jacobian())
+            order = np.argsort(np.abs(values))[::-1][:count]
+            return values[order], vectors[:, order]
         operator = LinearOperator(
-            (self.dimension, self.dimension), matvec=self.matvec_numpy, dtype=np.float64
+            (self.dimension, self.dimension),
+            matvec=self.matvec_balanced_numpy,
+            dtype=np.float64,
         )
         rng = np.random.default_rng(seed)
-        values = eigs(
+        values, vectors = eigs(
             operator,
             k=min(count, self.dimension - 2),
             which="LM",
             v0=rng.standard_normal(self.dimension),
             tol=tolerance,
             maxiter=max_iterations,
-            return_eigenvectors=False,
+            return_eigenvectors=True,
         )
-        return values[np.argsort(np.abs(values))[::-1]]
+        order = np.argsort(np.abs(values))[::-1]
+        return values[order], vectors[:, order]
+
+    def eigenpair_residuals(
+        self, values: np.ndarray, vectors: np.ndarray
+    ) -> np.ndarray:
+        """Return scale-normalized residuals ||Jv-lambda v||/(||Jv||+|lambda| ||v||)."""
+        residuals = []
+        for index, value in enumerate(values):
+            vector = vectors[:, index]
+            # The real operator is extended complex-linearly.
+            applied = self.matvec_balanced_numpy(vector.real) + 1j * self.matvec_balanced_numpy(
+                vector.imag
+            )
+            residual = np.linalg.norm(applied - value * vector)
+            scale = np.linalg.norm(applied) + abs(value) * np.linalg.norm(vector)
+            residuals.append(residual / scale if scale else 0.0)
+        return np.asarray(residuals)

@@ -155,6 +155,11 @@ Hessian-vector products tractable; it never supplies a state label or gate
 outcome. The training-loss Hessian uses the exact next minibatch from the saved
 cursor and restores the cursor without advancing it.
 
+The augmented eigensolver applies an eigenvalue-preserving similarity
+transform that RMS-balances weight, first-moment, and second-moment blocks.
+Every reported eigenpair includes a scale-normalized residual and is eligible
+for Gate 0 only when that residual is at most 1%.
+
 ### 4.4 Batch-size test
 
 A raw boundary shift with batch size is insufficient because batch size also
