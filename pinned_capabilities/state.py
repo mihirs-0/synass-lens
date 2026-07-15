@@ -72,6 +72,23 @@ def is_flat_loss(loss: float, reference: ReferenceBands, sd_multiplier: float = 
     return reference.q_star_loss_mean - radius <= loss <= reference.q_star_loss_mean + radius
 
 
+def is_jointly_suppressed(
+    rows: Sequence[Mapping[str, float]],
+    reference: ReferenceBands,
+    thresholds: StateThresholds,
+) -> bool:
+    """Require sustained order-zero interaction and empirical q-star loss."""
+    if not is_suppressed(rows, reference, thresholds):
+        return False
+    end_step = int(rows[-1]["step"])
+    start_step = end_step - thresholds.suppressed_duration
+    window = [row for row in rows if int(row["step"]) >= start_step]
+    return all(
+        "full_vocab_ce" in row and is_flat_loss(float(row["full_vocab_ce"]), reference)
+        for row in window
+    )
+
+
 def first_transition_step(
     rows: Sequence[Mapping[str, float]],
     reference: ReferenceBands,

@@ -11,7 +11,7 @@ import torch
 from .config import Gate1Config
 from .experiment import JSONLWriter, MBCExperiment
 from .parameter_groups import set_learning_rates
-from .state import ReferenceBands, StateThresholds, is_expressed, is_suppressed
+from .state import ReferenceBands, StateThresholds, is_expressed, is_jointly_suppressed
 
 
 @dataclass(frozen=True)
@@ -84,7 +84,7 @@ def classify_latest_state(
     latest = rows[-1]
     if is_expressed(float(latest["c_int"]), float(latest["exact_match"]), reference, thresholds):
         return "expressed"
-    if is_suppressed(rows, reference, thresholds):
+    if is_jointly_suppressed(rows, reference, thresholds):
         return "suppressed"
     return "intermediate"
 
