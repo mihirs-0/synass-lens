@@ -11,6 +11,10 @@ deep linear networks are prior art; the suite must add nonlinear behavioral
 state, complete memory localization, mechanism discrimination, or useful
 training-time control.
 
+[`CALIBRATION_LOG.md`](CALIBRATION_LOG.md) records instrument failures,
+corrections, compute timing, and non-oracle numerical checks. Calibration
+results are explicitly excluded from gate confidence intervals.
+
 The suite starts from behavioral measurements, not a parameter-space
 "capability direction." Its primary metric is a union-centered 2x2
 interaction contrast that cancels additive B-only and z-only shortcuts.
