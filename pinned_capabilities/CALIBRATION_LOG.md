@@ -159,3 +159,8 @@ JSON byte hash, and unresolved branches may record a late entry. The fixes
 only make the already frozen outcome executable. A no-local-scan precheck path
 was added so the terminal stop can be written without spending ineligible
 local-measurement compute; no threshold, grid, label, or decision rule changed.
+The resulting executable precheck artifact SHA-256 is
+`e1690a07f891918586ca51e6e3cc79955d5a5cc8a73c61f267b285a26d76cd5c`;
+its manifest SHA-256 is
+`67b666e89dc90d8921ca6af308b802d5d4391ec6e4f1eeced0c0c6554f8121b0`
+and records source commit `b186ef0`.
