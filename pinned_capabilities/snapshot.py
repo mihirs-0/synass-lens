@@ -43,6 +43,7 @@ def save_snapshot(
     stream: DeterministicBatchStream,
     step: int,
     scheduler: Optional[Any] = None,
+    scaler: Optional[Any] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Path:
     path = Path(path)
@@ -53,6 +54,7 @@ def save_snapshot(
         "model": model.state_dict(),
         "optimizer": optimizer.state_dict(),
         "scheduler": scheduler.state_dict() if scheduler is not None else None,
+        "scaler": scaler.state_dict() if scaler is not None else None,
         "stream": stream.state_dict(),
         "rng": capture_rng_state(),
         "metadata": metadata or {},
@@ -68,6 +70,7 @@ def load_snapshot(
     optimizer: torch.optim.Optimizer,
     stream: DeterministicBatchStream,
     scheduler: Optional[Any] = None,
+    scaler: Optional[Any] = None,
     restore_rng: bool = True,
     map_location: str | torch.device = "cpu",
 ) -> Dict[str, Any]:
@@ -81,9 +84,54 @@ def load_snapshot(
         if payload["scheduler"] is None:
             raise ValueError("snapshot has no scheduler state")
         scheduler.load_state_dict(payload["scheduler"])
+    if scaler is not None:
+        if payload.get("scaler") is None:
+            raise ValueError("snapshot has no gradient-scaler state")
+        scaler.load_state_dict(payload["scaler"])
     if restore_rng:
         restore_rng_state(payload["rng"])
     return {
         "step": int(payload["step"]),
         "metadata": payload.get("metadata", {}),
+    }
+
+
+def load_crossed_snapshot(
+    *,
+    weights_path: Path,
+    optimizer_path: Path,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    stream: DeterministicBatchStream,
+    scheduler: Optional[Any] = None,
+    scaler: Optional[Any] = None,
+    restore_rng: bool = True,
+    map_location: str | torch.device = "cpu",
+) -> Dict[str, Any]:
+    """Cross weights with the complete non-weight training state.
+
+    Data order and RNG belong to the optimizer-state source because the Gate 1
+    intervention defines that source as the complete update process state.
+    """
+    weights_payload = torch.load(Path(weights_path), map_location=map_location, weights_only=False)
+    state_payload = torch.load(Path(optimizer_path), map_location=map_location, weights_only=False)
+    if weights_payload.get("schema_version") != 1 or state_payload.get("schema_version") != 1:
+        raise ValueError("crossed snapshots require schema version 1")
+    model.load_state_dict(weights_payload["model"])
+    optimizer.load_state_dict(state_payload["optimizer"])
+    stream.load_state_dict(state_payload["stream"])
+    if scheduler is not None:
+        if state_payload.get("scheduler") is None:
+            raise ValueError("optimizer-state snapshot has no scheduler")
+        scheduler.load_state_dict(state_payload["scheduler"])
+    if scaler is not None:
+        if state_payload.get("scaler") is None:
+            raise ValueError("optimizer-state snapshot has no gradient scaler")
+        scaler.load_state_dict(state_payload["scaler"])
+    if restore_rng:
+        restore_rng_state(state_payload["rng"])
+    return {
+        "step": int(state_payload["step"]),
+        "weights_metadata": weights_payload.get("metadata", {}),
+        "optimizer_metadata": state_payload.get("metadata", {}),
     }

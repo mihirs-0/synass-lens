@@ -36,3 +36,9 @@ Implementation order is deliberately strict:
 3. Gate 1: hysteresis and memory-location surgery.
 4. Gate 2: module escape thresholds, only after Gate 1 passes.
 5. Gate 3: fixed-rule early warning, using logs collected from the beginning.
+
+Gate 1 uses fixed-rule dwell records. A level is boundary-eligible only after
+both disjoint probes meet the registered 2,000-step slope tolerance. The
+snapshot crossing utility treats Adam moments, step counters, scheduler,
+gradient scaler, RNG, and deterministic data cursor as one optimizer-state
+source, so the memory-location factorial does not silently mix histories.
