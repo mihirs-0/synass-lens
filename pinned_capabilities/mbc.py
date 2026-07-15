@@ -129,3 +129,22 @@ def evaluate_mbc_probe(
         "exact_match": float(full_exact.mean().item()),
         "full_vocab_ce": float(torch.stack(ce_by_position).mean().item()),
     }
+
+
+def differentiable_mbc_c_int(
+    model: torch.nn.Module,
+    probe: MBCProbe,
+    quartets: Quartets,
+) -> torch.Tensor:
+    """Differentiable mean interaction contrast for local-stability probes."""
+    logits = model(probe.input_ids).reshape(probe.n_b, probe.k, -1, model.cfg.d_vocab)
+    values = []
+    for position_index, read_position in enumerate(probe.read_positions):
+        values.append(
+            interaction_contrast(
+                logits[:, :, read_position, :],
+                probe.answer_token_ids[:, :, position_index],
+                quartets,
+            ).mean()
+        )
+    return torch.stack(values).mean()

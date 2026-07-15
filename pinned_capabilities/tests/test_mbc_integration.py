@@ -2,7 +2,11 @@ import unittest
 
 import torch
 
-from pinned_capabilities.mbc import build_mbc_probes, evaluate_mbc_probe
+from pinned_capabilities.mbc import (
+    build_mbc_probes,
+    differentiable_mbc_c_int,
+    evaluate_mbc_probe,
+)
 from pinned_capabilities.metrics import sample_quartets
 from pinned_capabilities.parameter_groups import grouped_named_parameters
 from src.data import CharTokenizer, generate_mappings
@@ -54,6 +58,20 @@ class MBCIntegrationTests(unittest.TestCase):
         assigned = {name for values in groups.values() for name, _ in values}
         trainable = {name for name, parameter in self.model.named_parameters() if parameter.requires_grad}
         self.assertEqual(assigned, trainable)
+
+    def test_interaction_assay_is_differentiable(self) -> None:
+        probe, _ = build_mbc_probes(
+            self.mapping, self.tokenizer, n_b=5, seeds=(101, 103)
+        )
+        quartets = sample_quartets(5, 3, 12, seed=109)
+        self.model.zero_grad(set_to_none=True)
+        score = differentiable_mbc_c_int(self.model, probe, quartets)
+        score.backward()
+        gradients = [
+            parameter.grad for parameter in self.model.parameters() if parameter.grad is not None
+        ]
+        self.assertTrue(gradients)
+        self.assertTrue(all(torch.isfinite(gradient).all() for gradient in gradients))
 
 
 if __name__ == "__main__":

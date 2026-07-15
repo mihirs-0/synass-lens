@@ -61,6 +61,10 @@ class Gate0Config:
     residual_batch_shift_fraction: float = 0.25
     reduction_match_factor: float = 1.5
     reduction_miss_factor: float = 2.0
+    local_probe_b_count: int = 32
+    local_quartet_count: int = 256
+    curvature_power_iterations: int = 30
+    augmented_eigenvalue_count: int = 3
 
 
 @dataclass(frozen=True)
@@ -113,7 +117,7 @@ class MBCExperimentConfig:
 
 @dataclass(frozen=True)
 class ProtocolConfig:
-    protocol_version: str = "1.2.3"
+    protocol_version: str = "1.2.4"
     output_root: str = "pinned_capabilities/results"
     metric: MetricConfig = field(default_factory=MetricConfig)
     state: StateConfig = field(default_factory=StateConfig)
@@ -129,6 +133,13 @@ class ProtocolConfig:
             raise ValueError("erase_horizon must be shorter than acquire_horizon")
         if self.gate0.erase_horizon >= self.gate0.erase_hold_steps:
             raise ValueError("erasure entry horizon must be shorter than the complete hold")
+        if min(
+            self.gate0.local_probe_b_count,
+            self.gate0.local_quartet_count,
+            self.gate0.curvature_power_iterations,
+            self.gate0.augmented_eigenvalue_count,
+        ) <= 0:
+            raise ValueError("Gate 0 local-measurement sizes must be positive")
         if self.gate1.extended_dwell_multiplier <= 1:
             raise ValueError("extended dwell must exceed base dwell")
         if self.gate1.maximum_dwell_steps < self.gate1.base_dwell_steps:

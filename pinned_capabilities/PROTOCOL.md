@@ -1,6 +1,6 @@
 # Pinned capabilities: bistability, memory, and early warning in neural-network training
 
-**Prospective protocol v1.2.3 — pilot-informed, not a pristine preregistration**
+**Prospective protocol v1.2.4 — pilot-informed, not a pristine preregistration**
 
 This document freezes all new decisions before the new gate suite is run. It
 is informed by existing MBC experiments, including the order-0 `q*` result,
@@ -147,6 +147,13 @@ differences on a tractable system. Its spectral radius is the primary local
 predictor because momentum and second-moment feedback change Adam's stability
 constant. The deep-linear positive control calibrates the numerical pipeline;
 it does not pretend that conditional binding is a linear task.
+
+The capability direction uses a fixed differentiable assay with 32 `B` values
+and 256 registered quartets, averaged over answer positions. This assay is
+smaller than the two state-label probes solely to make repeated
+Hessian-vector products tractable; it never supplies a state label or gate
+outcome. The training-loss Hessian uses the exact next minibatch from the saved
+cursor and restores the cursor without advancing it.
 
 ### 4.4 Batch-size test
 
@@ -348,3 +355,9 @@ order-zero interval while full-vocabulary loss diverges. Gate 0 erasure now
 requires sustained membership in both the `C_int` and empirical `q*` loss
 bands, and divergent branches are explicitly excluded from bisection. No gate
 outcome or boundary had been generated.
+
+### 2026-07-15 — version 1.2.4, local-probe implementation freeze
+
+The differentiable capability-direction probe was fixed at 32 `B` values and
+256 quartets before any neural local-stability measurement. The full state
+probes remain unchanged and cannot be replaced by this smaller assay.
