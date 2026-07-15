@@ -1,0 +1,31 @@
+# Pinned capabilities experiment suite
+
+This package implements the staged falsification program in
+[`PROTOCOL.md`](PROTOCOL.md). It is isolated from the older `eta_sweep` scripts
+so that prospective decisions, pilot evidence, and legacy analyses cannot be
+silently mixed.
+
+The suite starts from behavioral measurements, not a parameter-space
+"capability direction." Its primary metric is a union-centered 2x2
+interaction contrast that cancels additive B-only and z-only shortcuts.
+
+Administrative commands:
+
+```bash
+python -m pinned_capabilities show-config
+python -m pinned_capabilities freeze pinned_capabilities/results/manifest.json
+python -m unittest discover -s pinned_capabilities/tests -v
+```
+
+Every experiment cell will receive an immutable JSON manifest containing the
+complete configuration, its SHA-256 digest, and the source commit. Results are
+never written into source directories and are ignored through the repository's
+existing `results` convention once the gate runners are added.
+
+Implementation order is deliberately strict:
+
+1. Metrics, reference bands, state labels, and manifests.
+2. Gate 0: reduction to standard optimizer stability.
+3. Gate 1: hysteresis and memory-location surgery.
+4. Gate 2: module escape thresholds, only after Gate 1 passes.
+5. Gate 3: fixed-rule early warning, using logs collected from the beginning.
