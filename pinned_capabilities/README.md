@@ -14,8 +14,15 @@ Administrative commands:
 ```bash
 python -m pinned_capabilities show-config
 python -m pinned_capabilities freeze pinned_capabilities/results/manifest.json
+python -m pinned_capabilities deep-linear
+python -m pinned_capabilities smoke
 python -m unittest discover -s pinned_capabilities/tests -v
 ```
+
+The deep-linear command is Gate 0's closed-form positive control. The smoke
+command constructs a fresh-seeded TransformerLens model, creates the two
+disjoint counterfactual probes, evaluates the empirical input-blind `q*`, and
+runs the shared deterministic training path end to end.
 
 Every experiment cell will receive an immutable JSON manifest containing the
 complete configuration, its SHA-256 digest, and the source commit. Results are

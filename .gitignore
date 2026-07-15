@@ -1,5 +1,6 @@
 .DS_Store
 .venv/
 outputs/
+pinned_capabilities/results/
 __pycache__/
 *.pyc

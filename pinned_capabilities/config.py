@@ -55,6 +55,7 @@ class Gate0Config:
 class Gate1Config:
     levels_per_decade: int = 12
     base_dwell_steps: int = 5_000
+    maximum_dwell_steps: int = 20_000
     extended_dwell_multiplier: int = 3
     hold_steps: int = 10_000
     cycles: int = 2
@@ -65,6 +66,40 @@ class Gate1Config:
 
 
 @dataclass(frozen=True)
+class MBCExperimentConfig:
+    seed: int = 0
+    n_unique_b: int = 1_000
+    k: int = 10
+    b_length: int = 6
+    a_length: int = 4
+    z_length: int = 2
+    vocab_chars: str = "abcdefghijklmnopqrstuvwxyz0123456789"
+    n_layers: int = 4
+    n_heads: int = 4
+    d_model: int = 128
+    d_head: int = 32
+    d_mlp: int = 512
+    act_fn: str = "gelu"
+    batch_size: int = 128
+    learning_rate: float = 1e-3
+    weight_decay: float = 0.01
+    probe_b_count: int = 128
+    device: str = "auto"
+
+    def validate(self) -> None:
+        if self.n_unique_b < 2 * self.probe_b_count:
+            raise ValueError("two disjoint probes require n_unique_b >= 2 * probe_b_count")
+        if self.k < 2 or self.batch_size <= 0:
+            raise ValueError("k must be at least two and batch_size must be positive")
+        if self.d_model != self.n_heads * self.d_head:
+            raise ValueError("d_model must equal n_heads * d_head")
+        if self.learning_rate <= 0 or self.weight_decay < 0:
+            raise ValueError("invalid optimizer hyperparameters")
+        if self.device not in {"auto", "cpu", "cuda", "mps"}:
+            raise ValueError(f"unsupported device: {self.device}")
+
+
+@dataclass(frozen=True)
 class ProtocolConfig:
     protocol_version: str = "1.1.0"
     output_root: str = "pinned_capabilities/results"
@@ -72,14 +107,18 @@ class ProtocolConfig:
     state: StateConfig = field(default_factory=StateConfig)
     gate0: Gate0Config = field(default_factory=Gate0Config)
     gate1: Gate1Config = field(default_factory=Gate1Config)
+    experiment: MBCExperimentConfig = field(default_factory=MBCExperimentConfig)
 
     def validate(self) -> None:
         self.metric.validate()
         self.state.validate()
+        self.experiment.validate()
         if self.gate0.erase_horizon >= self.gate0.acquire_horizon:
             raise ValueError("erase_horizon must be shorter than acquire_horizon")
         if self.gate1.extended_dwell_multiplier <= 1:
             raise ValueError("extended dwell must exceed base dwell")
+        if self.gate1.maximum_dwell_steps < self.gate1.base_dwell_steps:
+            raise ValueError("maximum dwell must not be shorter than base dwell")
 
     def to_dict(self) -> Dict[str, Any]:
         self.validate()
