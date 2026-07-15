@@ -56,6 +56,17 @@ The suite must not claim novelty for any of the following:
 7. **Training history matters.** Critical-period work shows that temporary
    early deficits can have lasting skill effects
    ([Achille et al.](https://openreview.net/forum?id=BkeStsCcKQ)).
+8. **A capability can exist before ordinary behavior reveals it.** Latent
+   interventions already expose hidden concept manipulation before naive
+   prompting elicits it, including in synthetic generative systems
+   ([Park et al.](https://arxiv.org/abs/2406.19370)). `C_int` is therefore a
+   deliberately cleaner state variable, not a claim that hidden capability is
+   new.
+9. **Layer- or module-specific training rules.** Different learning rates per
+   layer and selective module updating are established optimization tools
+   ([LeRaC](https://openreview.net/forum?id=AdK9_GTEvG),
+   [Modular Adaptive Training](https://openreview.net/forum?id=dWDEBW2raJ)).
+   Merely finding that an MLP-only pulse helps is not a contribution.
 
 ## The surviving novelty package
 
@@ -99,11 +110,15 @@ The strongest possible result is not the phase diagram. It is that a short
 behavioral response assay chooses a module-specific pulse that crosses the
 basin boundary faster and more reliably than cheap baselines, without being
 told the winning module. This converts a state description into a training-time
-control instrument.
+control instrument. The novelty is the closed causal chain -- behaviorally
+defined state, prospective intervention selection, and durable post-pulse fate
+change -- not the use of per-module learning rates.
 
 The claim dies if global learning rate, gradient norm, a 50-step branch, or a
-development-set default performs as well. It is validation rather than blind
-localization if the MLP wins almost everywhere.
+development-set default performs as well. It also dies if the assay merely
+predicts the largest immediate metric improvement: the post-restoration hold
+must show basin crossing. It is validation rather than blind localization if
+the MLP wins almost everywhere.
 
 ## Publication threshold
 
@@ -114,7 +129,8 @@ localization if the MLP wins almost everywhere.
   potentially publishable as nonlinear optimizer-state memory and reversible
   capability control.
 - **Gate 2 beats all cheap baselines out of sample:** strongest paper; the
-  diagnostic has earned its cost by changing training fate.
+  diagnostic has earned its cost by changing training fate. Module-specific
+  optimization alone is explicitly not the claim.
 - **Gate 3 alone:** insufficient. Early-warning statistics are mature in
   dynamical systems and count only if they improve control or forecasting here.
 

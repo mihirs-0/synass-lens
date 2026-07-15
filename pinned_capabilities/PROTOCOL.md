@@ -1,6 +1,6 @@
 # Pinned capabilities: bistability, memory, and early warning in neural-network training
 
-**Prospective protocol v1.3.0 — pilot-informed, not a pristine preregistration**
+**Prospective protocol v1.3.2 — pilot-informed, not a pristine preregistration**
 
 This document freezes all new decisions before the new gate suite is run. It
 is informed by existing MBC experiments, including the order-0 `q*` result,
@@ -394,3 +394,14 @@ fluctuation. A preregistered 2% relative radius was added as a floor under the
 three-SD band before any suppressed checkpoint or gate outcome. Reference
 generation itself is unchanged, so the running v1.2.4 ensemble remains
 eligible.
+
+### 2026-07-15 — version 1.3.2, intervention-novelty clarification
+
+A further prior-art pass identified latent intervention evidence for hidden
+capabilities (Park et al., arXiv:2406.19370) and established layer-wise or
+selective-module training methods (LeRaC and Modular Adaptive Training). Gate
+2 therefore cannot claim either hidden capability or module-specific learning
+rates. Its contribution requires prospective behavioral selection to beat the
+registered cheap baselines and cause a durable post-restoration fate change.
+This clarification changes no measurement, threshold, seed, or training rule;
+the running v1.2.4 reference ensemble remains eligible.

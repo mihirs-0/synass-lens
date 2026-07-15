@@ -121,7 +121,7 @@ class MBCExperimentConfig:
 
 @dataclass(frozen=True)
 class ProtocolConfig:
-    protocol_version: str = "1.3.1"
+    protocol_version: str = "1.3.2"
     output_root: str = "pinned_capabilities/results"
     metric: MetricConfig = field(default_factory=MetricConfig)
     state: StateConfig = field(default_factory=StateConfig)
