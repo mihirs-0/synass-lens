@@ -16,6 +16,7 @@ from .state import (
     ReferenceBands,
     StateThresholds,
     first_transition_step,
+    is_expressed,
     is_flat_loss,
     plateau_bounds,
 )
@@ -42,6 +43,26 @@ class AcquisitionResult:
     final_exact_match: float
     final_delta_z: float
     final_full_vocab_ce: float
+
+
+def _atomic_write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, indent=2) + "\n")
+    temporary.replace(path)
+
+
+def _branch_label(learning_rate: float) -> str:
+    return f"eta_{learning_rate:.12g}".replace(".", "p")
+
+
+def _load_erasure_result(path: Path, learning_rate: float) -> Optional[ErasureResult]:
+    if not path.exists():
+        return None
+    result = ErasureResult(**json.loads(path.read_text()))
+    if not math.isclose(result.learning_rate, learning_rate, rel_tol=1e-12, abs_tol=0.0):
+        raise ValueError(f"completed branch at {path} has the wrong learning rate")
+    return result
 
 
 def sustained_band_entry(
@@ -121,19 +142,88 @@ def run_erasure_branch(
         not math.isfinite(latest["full_vocab_ce"])
         or latest["full_vocab_ce"] > 5.0 * reference.q_star_loss_mean
     )
+    if entry is not None and entry <= gate.erase_horizon:
+        outcome = "erased"
+    elif divergent:
+        outcome = "diverged"
+    elif is_expressed(
+        latest["c_int"], latest["exact_match"], reference, thresholds
+    ):
+        outcome = "retained"
+    else:
+        outcome = "unresolved"
     result = ErasureResult(
         learning_rate=learning_rate,
         erased=erased,
-        outcome="erased" if erased else ("diverged" if divergent else "retained_or_unresolved"),
+        outcome=outcome,
         sustained_entry_step=entry,
         final_c_int=latest["c_int"],
         final_exact_match=latest["exact_match"],
         final_delta_z=latest["delta_z"],
         final_full_vocab_ce=latest["full_vocab_ce"],
     )
-    output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "result.json").write_text(json.dumps(asdict(result), indent=2) + "\n")
+    _atomic_write_json(output_dir / "result.json", asdict(result))
     return result
+
+
+def run_erasure_scan(
+    experiment_config: MBCExperimentConfig,
+    metric: MetricConfig,
+    gate: Gate0Config,
+    reference: ReferenceBands,
+    snapshot_path: Path,
+    learning_rates: Sequence[float],
+    output_dir: Path,
+    *,
+    thresholds: Optional[StateThresholds] = None,
+) -> dict:
+    """Run a resumable coarse scan and expose only strict adjacent brackets."""
+    rates = sorted(float(rate) for rate in learning_rates)
+    if not rates or any(rate <= 0 for rate in rates):
+        raise ValueError("erasure scan learning rates must be positive")
+    if len(set(rates)) != len(rates):
+        raise ValueError("erasure scan learning rates must be unique")
+    output_dir = Path(output_dir)
+    results = []
+    for learning_rate in rates:
+        branch_dir = output_dir / _branch_label(learning_rate)
+        result_path = branch_dir / "result.json"
+        result = _load_erasure_result(result_path, learning_rate)
+        if result is None:
+            result = run_erasure_branch(
+                experiment_config,
+                metric,
+                gate,
+                reference,
+                snapshot_path,
+                learning_rate,
+                branch_dir,
+                thresholds=thresholds,
+            )
+            _atomic_write_json(result_path, asdict(result))
+        results.append(result)
+        partial = {
+            "complete": len(results) == len(rates),
+            "requested_learning_rates": rates,
+            "branches": [asdict(branch) for branch in results],
+        }
+        _atomic_write_json(output_dir / "scan.json", partial)
+    adjacent_brackets = [
+        {
+            "lower_learning_rate": lower.learning_rate,
+            "upper_learning_rate": upper.learning_rate,
+        }
+        for lower, upper in zip(results, results[1:])
+        if lower.outcome == "retained" and upper.outcome == "erased"
+    ]
+    summary = {
+        "complete": True,
+        "requested_learning_rates": rates,
+        "strict_adjacent_brackets": adjacent_brackets,
+        "branches": [asdict(branch) for branch in results],
+    }
+    _atomic_write_json(output_dir / "scan.json", summary)
+    return summary
 
 
 def geometric_erasure_bisection(
@@ -155,40 +245,47 @@ def geometric_erasure_bisection(
 
     def evaluate(learning_rate: float) -> ErasureResult:
         if learning_rate not in cache:
-            label = f"eta_{learning_rate:.12g}".replace(".", "p")
-            cache[learning_rate] = run_erasure_branch(
-                experiment_config,
-                metric,
-                gate,
-                reference,
-                snapshot_path,
-                learning_rate,
-                output_dir / label,
-                thresholds=thresholds,
-            )
+            branch_dir = output_dir / _branch_label(learning_rate)
+            existing = _load_erasure_result(branch_dir / "result.json", learning_rate)
+            if existing is not None:
+                cache[learning_rate] = existing
+            else:
+                cache[learning_rate] = run_erasure_branch(
+                    experiment_config,
+                    metric,
+                    gate,
+                    reference,
+                    snapshot_path,
+                    learning_rate,
+                    branch_dir,
+                    thresholds=thresholds,
+                )
         return cache[learning_rate]
 
     lower = evaluate(lower_learning_rate)
     upper = evaluate(upper_learning_rate)
-    if lower.erased or lower.outcome == "diverged" or not upper.erased:
+    if lower.outcome != "retained" or upper.outcome != "erased":
         raise ValueError(
-            "invalid erasure bracket: lower must retain expression and upper must erase"
+            "invalid erasure bracket: lower must be retained and upper must be erased"
         )
     for _ in range(gate.boundary_bisection_steps):
         midpoint = math.sqrt(lower.learning_rate * upper.learning_rate)
         result = evaluate(midpoint)
         if result.erased:
             upper = result
-        else:
+        elif result.outcome == "retained":
             lower = result
+        else:
+            raise ValueError(
+                f"erasure bracket encountered invalid midpoint outcome: {result.outcome}"
+            )
     summary = {
         "largest_non_erasing_learning_rate": lower.learning_rate,
         "smallest_erasing_learning_rate": upper.learning_rate,
         "multiplicative_interval": upper.learning_rate / lower.learning_rate,
         "branches": [asdict(cache[key]) for key in sorted(cache)],
     }
-    output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "boundary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    _atomic_write_json(output_dir / "boundary.json", summary)
     return summary
 
 
@@ -261,6 +358,5 @@ def run_acquisition_branch(
         final_delta_z=latest["delta_z"],
         final_full_vocab_ce=latest["full_vocab_ce"],
     )
-    output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "result.json").write_text(json.dumps(asdict(result), indent=2) + "\n")
+    _atomic_write_json(output_dir / "result.json", asdict(result))
     return result

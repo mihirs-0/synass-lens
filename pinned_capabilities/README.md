@@ -32,6 +32,7 @@ python -m pinned_capabilities prepare-suppressed --help
 python -m pinned_capabilities prepare-expressed --help
 python -m pinned_capabilities hysteresis --help
 python -m pinned_capabilities local-stability --help
+python -m pinned_capabilities erasure-scan --help
 python -m pinned_capabilities erasure-boundary --help
 python -m pinned_capabilities acquisition --help
 python -m pinned_capabilities memory-factorial --help
@@ -70,4 +71,7 @@ source, so the memory-location factorial does not silently mix histories.
 Gate 0 erasure branches likewise reload one complete expressed snapshot. A
 branch counts as erased only after sustained joint return to the order-zero
 interaction band and the empirical input-blind loss band. High-rate divergence
-is a separate outcome and is invalid as a bisection endpoint.
+is a separate outcome and invalidates any bisection path that encounters it.
+The resumable coarse scan reports a bracket only when adjacent tested rates are
+strictly classified as retained and erased; unresolved branches are never
+silently promoted to retained endpoints.

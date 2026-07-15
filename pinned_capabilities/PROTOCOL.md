@@ -1,6 +1,6 @@
 # Pinned capabilities: bistability, memory, and early warning in neural-network training
 
-**Prospective protocol v1.3.2 — pilot-informed, not a pristine preregistration**
+**Prospective protocol v1.3.3 — pilot-informed, not a pristine preregistration**
 
 This document freezes all new decisions before the new gate suite is run. It
 is informed by existing MBC experiments, including the order-0 `q*` result,
@@ -405,3 +405,12 @@ rates. Its contribution requires prospective behavioral selection to beat the
 registered cheap baselines and cause a durable post-restoration fate change.
 This clarification changes no measurement, threshold, seed, or training rule;
 the running v1.2.4 reference ensemble remains eligible.
+
+### 2026-07-15 — version 1.3.3, strict erasure brackets
+
+The coarse erasure scan now distinguishes retained, erased, divergent, and
+unresolved branches. Only an adjacent retained-to-erased pair is eligible for
+bisection, and any divergent or unresolved midpoint invalidates that path
+rather than being silently treated as a retaining endpoint. This fixes an
+implementation ambiguity before any Gate 0 boundary result. Reference
+generation is unchanged, so the running v1.2.4 ensemble remains eligible.

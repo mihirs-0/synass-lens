@@ -1,6 +1,15 @@
+import tempfile
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from pinned_capabilities.gate0_boundary import sustained_band_entry
+from pinned_capabilities.gate0_boundary import (
+    ErasureResult,
+    geometric_erasure_bisection,
+    run_erasure_scan,
+    sustained_band_entry,
+)
 from pinned_capabilities.state import ReferenceBands
 
 
@@ -27,6 +36,71 @@ class ErasureClassifierTests(unittest.TestCase):
             {"branch_step": 100.0, "c_int": 0.1, "full_vocab_ce": 50.0},
         ]
         self.assertIsNone(sustained_band_entry(rows, self.reference, branch_end_step=100))
+
+    @staticmethod
+    def result(rate: float, outcome: str) -> ErasureResult:
+        return ErasureResult(
+            learning_rate=rate,
+            erased=outcome == "erased",
+            outcome=outcome,
+            sustained_entry_step=100 if outcome == "erased" else None,
+            final_c_int=8.0 if outcome == "retained" else 0.0,
+            final_exact_match=1.0 if outcome == "retained" else 0.0,
+            final_delta_z=0.0,
+            final_full_vocab_ce=0.01 if outcome == "retained" else 2.0,
+        )
+
+    def test_erasure_scan_resumes_completed_branches(self) -> None:
+        def fake_branch(*args, **kwargs):
+            rate = args[5]
+            return self.result(rate, "retained" if rate == 0.01 else "erased")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            with patch(
+                "pinned_capabilities.gate0_boundary.run_erasure_branch",
+                side_effect=fake_branch,
+            ) as runner:
+                summary = run_erasure_scan(
+                    object(), object(), object(), self.reference, Path("snapshot"),
+                    [0.01, 0.02], output,
+                )
+            self.assertEqual(runner.call_count, 2)
+            self.assertEqual(
+                summary["strict_adjacent_brackets"],
+                [{"lower_learning_rate": 0.01, "upper_learning_rate": 0.02}],
+            )
+            with patch(
+                "pinned_capabilities.gate0_boundary.run_erasure_branch",
+                side_effect=AssertionError("completed branches should not rerun"),
+            ):
+                resumed = run_erasure_scan(
+                    object(), object(), object(), self.reference, Path("snapshot"),
+                    [0.01, 0.02], output,
+                )
+            self.assertEqual(resumed, summary)
+
+    def test_bisection_rejects_divergent_midpoint(self) -> None:
+        def fake_branch(*args, **kwargs):
+            rate = args[5]
+            if rate == 0.01:
+                return self.result(rate, "retained")
+            if rate == 0.04:
+                return self.result(rate, "erased")
+            return self.result(rate, "diverged")
+
+        gate = SimpleNamespace(boundary_bisection_steps=1)
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            "pinned_capabilities.gate0_boundary.run_erasure_branch",
+            side_effect=fake_branch,
+        ):
+            with self.assertRaisesRegex(ValueError, "invalid midpoint outcome: diverged"):
+                geometric_erasure_bisection(
+                    object(), object(), gate, self.reference, Path("snapshot"),
+                    lower_learning_rate=0.01,
+                    upper_learning_rate=0.04,
+                    output_dir=Path(temporary),
+                )
 
 
 if __name__ == "__main__":

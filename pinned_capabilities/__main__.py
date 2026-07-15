@@ -10,7 +10,11 @@ from pathlib import Path
 from .config import MBCExperimentConfig, MetricConfig, ProtocolConfig
 from .experiment import JSONLWriter, MBCExperiment
 from .gate0 import deep_linear_control
-from .gate0_boundary import geometric_erasure_bisection, run_acquisition_branch
+from .gate0_boundary import (
+    geometric_erasure_bisection,
+    run_acquisition_branch,
+    run_erasure_scan,
+)
 from .local_measurement import measure_checkpoint_local_stability
 from .manifest import freeze_manifest
 from .memory_surgery_run import run_memory_factorial
@@ -107,6 +111,17 @@ def main() -> None:
     erasure.add_argument("--upper-learning-rate", type=float, required=True)
     erasure.add_argument("--output", type=Path, required=True)
     erasure.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    erasure_scan = subparsers.add_parser(
+        "erasure-scan", help="run a resumable coarse Gate 0 erasure bracket scan"
+    )
+    erasure_scan.add_argument("--reference", type=Path, required=True)
+    erasure_scan.add_argument("--snapshot", type=Path, required=True)
+    erasure_scan.add_argument("--seed", type=int, required=True)
+    erasure_scan.add_argument("--learning-rates", type=float, nargs="+", required=True)
+    erasure_scan.add_argument("--output", type=Path, required=True)
+    erasure_scan.add_argument(
+        "--device", choices=("auto", "cpu", "cuda", "mps"), default="auto"
+    )
     acquisition = subparsers.add_parser(
         "acquisition", help="run one censored Gate 0 acquisition branch"
     )
@@ -311,6 +326,35 @@ def main() -> None:
             lower_learning_rate=args.lower_learning_rate,
             upper_learning_rate=args.upper_learning_rate,
             output_dir=args.output,
+            thresholds=thresholds,
+        )
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    elif args.command == "erasure-scan":
+        bands = load_reference_bands(args.reference)
+        thresholds = StateThresholds(**asdict(config.state))
+        experiment_config = replace(
+            config.experiment, seed=args.seed, device=args.device
+        )
+        frozen = {
+            "kind": "gate0_erasure_scan",
+            "protocol_version": config.protocol_version,
+            "experiment": experiment_config,
+            "metric": config.metric,
+            "state": config.state,
+            "gate0": config.gate0,
+            "reference_path": str(args.reference),
+            "snapshot": str(args.snapshot),
+            "learning_rates": tuple(args.learning_rates),
+        }
+        freeze_manifest(frozen, args.output / "manifest.json", repo=Path.cwd())
+        summary = run_erasure_scan(
+            experiment_config,
+            config.metric,
+            config.gate0,
+            bands,
+            args.snapshot,
+            args.learning_rates,
+            args.output,
             thresholds=thresholds,
         )
         print(json.dumps(summary, indent=2, sort_keys=True))
