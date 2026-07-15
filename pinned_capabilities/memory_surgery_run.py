@@ -125,6 +125,7 @@ def _run_arm(
         )
         branch_start = int(progress["branch_start"])
         completed_steps = int(progress["completed_branch_steps"])
+        active_slot = int(progress["active_slot"])
         if int(restored["step"]) - branch_start != completed_steps:
             raise ValueError("memory-arm checkpoint and progress disagree")
         if not metrics_path.exists():
@@ -138,6 +139,7 @@ def _run_arm(
         )
         rows = [{**row, "step": float(row["branch_step"])} for row in logged]
     else:
+        active_slot = -1
         if metrics_path.exists():
             metrics_path.write_text("")
         restored = load_crossed_snapshot(
@@ -172,10 +174,11 @@ def _run_arm(
         )
         rows.append({**latest, "step": float(branch_step)})
         if branch_step % checkpoint_every == 0 or branch_step == challenge_steps:
+            active_slot = 1 if active_slot != 1 else 0
             checkpoint_path = (
                 output_dir
                 / "checkpoints"
-                / f"slot_{(branch_step // checkpoint_every) % 2}.pt"
+                / f"slot_{active_slot}.pt"
             )
             temporary_checkpoint = checkpoint_path.with_suffix(".pt.tmp")
             save_snapshot(
@@ -202,6 +205,7 @@ def _run_arm(
                     "branch_start": branch_start,
                     "completed_branch_steps": branch_step,
                     "checkpoint_path": str(checkpoint_path.relative_to(output_dir)),
+                    "active_slot": active_slot,
                 },
             )
     latest = rows[-1]

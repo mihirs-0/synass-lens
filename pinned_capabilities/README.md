@@ -69,6 +69,8 @@ gradient scaler, RNG, and deterministic data cursor as one optimizer-state
 source, so the memory-location factorial does not silently mix histories.
 Each factorial arm checkpoints transactionally every 1,000 steps and resumes
 from its last complete checkpoint; completed arms are never rerun.
+The 40,000-step transition-timing arms use the same exact-resume discipline,
+including optimizer-reset state and the sustained-expression clock.
 
 Gate 0 erasure branches likewise reload one complete expressed snapshot. A
 branch counts as erased only after sustained joint return to the order-zero
