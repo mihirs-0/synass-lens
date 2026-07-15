@@ -1,10 +1,12 @@
 import math
 import unittest
 
+import numpy as np
 import torch
 
 from pinned_capabilities.gate0 import deep_linear_control
 from pinned_capabilities.local_stability import (
+    AugmentedAdamWLinearization,
     capability_preconditioned_curvature,
     largest_preconditioned_curvature,
 )
@@ -48,6 +50,44 @@ class CurvatureTests(unittest.TestCase):
             self.loss, (self.x, self.y), self.optimizer, iterations=40, seed=3
         )
         self.assertTrue(math.isclose(largest.item(), 5.0 * expected_scale, rel_tol=1e-6))
+
+    def test_augmented_adam_jacobian_matches_finite_difference(self) -> None:
+        linearization = AugmentedAdamWLinearization(
+            self.loss(), (self.x, self.y), self.optimizer
+        )
+        observed = linearization.dense_jacobian()
+        theta = torch.tensor([self.x.item(), self.y.item()], dtype=torch.float64)
+        moment = torch.stack(
+            [self.optimizer.state[p]["exp_avg"] for p in (self.x, self.y)]
+        )
+        second = torch.stack(
+            [self.optimizer.state[p]["exp_avg_sq"] for p in (self.x, self.y)]
+        )
+        base = torch.cat((theta, moment, second))
+        beta1, beta2 = self.optimizer.param_groups[0]["betas"]
+        learning_rate = self.optimizer.param_groups[0]["lr"]
+        weight_decay = self.optimizer.param_groups[0]["weight_decay"]
+        eps = self.optimizer.param_groups[0]["eps"]
+
+        def state_map(value):
+            current_theta, current_m, current_v = value[:2], value[2:4], value[4:]
+            gradient = torch.tensor([2.0, 5.0], dtype=torch.float64) * current_theta
+            next_m = beta1 * current_m + (1 - beta1) * gradient
+            next_v = beta2 * current_v + (1 - beta2) * gradient.square()
+            m_hat = next_m / (1 - beta1**2)
+            v_hat = next_v / (1 - beta2**2)
+            next_theta = (1 - learning_rate * weight_decay) * current_theta
+            next_theta = next_theta - learning_rate * m_hat / (v_hat.sqrt() + eps)
+            return torch.cat((next_theta, next_m, next_v))
+
+        epsilon = 1e-6
+        numerical = []
+        for index in range(6):
+            direction = torch.zeros(6, dtype=torch.float64)
+            direction[index] = epsilon
+            numerical.append(((state_map(base + direction) - state_map(base - direction)) / (2 * epsilon)).numpy())
+        numerical = torch.from_numpy(np.column_stack(numerical))
+        torch.testing.assert_close(torch.from_numpy(observed), numerical, rtol=2e-5, atol=2e-7)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Callable, Iterable, Sequence
 
+import numpy as np
 import torch
+from scipy.sparse.linalg import LinearOperator, eigs
 
 
 def _trainable(parameters: Iterable[torch.nn.Parameter]) -> tuple[torch.nn.Parameter, ...]:
@@ -107,3 +109,158 @@ def largest_preconditioned_curvature(
             return torch.zeros_like(eigenvalue)
         vector = tuple((value / norm).detach() for value in transformed)
     return eigenvalue
+
+
+class AugmentedAdamWLinearization:
+    """Matrix-free Jacobian of one AdamW step on ``(theta, m, v)``.
+
+    The object retains one autograd graph for repeated Hessian-vector products.
+    It is intended for a frozen checkpoint and a fixed registered training
+    batch; mutating model parameters before measurement completes is invalid.
+    """
+
+    def __init__(
+        self,
+        training_loss: torch.Tensor,
+        parameters: Iterable[torch.nn.Parameter],
+        optimizer: torch.optim.Optimizer,
+    ) -> None:
+        self.parameters = _trainable(parameters)
+        self.optimizer = optimizer
+        self.gradients = torch.autograd.grad(training_loss, self.parameters, create_graph=True)
+        self.shapes = tuple(parameter.shape for parameter in self.parameters)
+        self.sizes = tuple(parameter.numel() for parameter in self.parameters)
+        self.parameter_count = sum(self.sizes)
+        self.dimension = 3 * self.parameter_count
+        self.groups = {
+            id(parameter): group
+            for group in optimizer.param_groups
+            for parameter in group["params"]
+        }
+        for parameter in self.parameters:
+            group = self.groups[id(parameter)]
+            if group.get("amsgrad", False):
+                raise NotImplementedError("augmented linearization does not support AMSGrad")
+            state = optimizer.state.get(parameter, {})
+            if "exp_avg" not in state or "exp_avg_sq" not in state or "step" not in state:
+                raise ValueError("AdamW state must be initialized before local linearization")
+
+    def _split_block(self, block: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        values = []
+        cursor = 0
+        for shape, size, parameter in zip(self.shapes, self.sizes, self.parameters):
+            values.append(block[cursor : cursor + size].reshape(shape).to(parameter.device, parameter.dtype))
+            cursor += size
+        return tuple(values)
+
+    def unpack(self, vector: torch.Tensor) -> tuple[tuple[torch.Tensor, ...], ...]:
+        if vector.numel() != self.dimension:
+            raise ValueError(f"expected augmented vector of length {self.dimension}")
+        n = self.parameter_count
+        return (
+            self._split_block(vector[:n]),
+            self._split_block(vector[n : 2 * n]),
+            self._split_block(vector[2 * n :]),
+        )
+
+    @staticmethod
+    def _flatten(values: Sequence[torch.Tensor]) -> torch.Tensor:
+        return torch.cat([value.reshape(-1) for value in values])
+
+    def matvec_torch(self, vector: torch.Tensor) -> torch.Tensor:
+        delta_theta, delta_m, delta_v = self.unpack(vector)
+        directional_gradient = sum(
+            (gradient * direction).sum()
+            for gradient, direction in zip(self.gradients, delta_theta)
+        )
+        hessian_delta = torch.autograd.grad(
+            directional_gradient, self.parameters, retain_graph=True
+        )
+        out_theta = []
+        out_m = []
+        out_v = []
+        for parameter, gradient, h_delta, d_theta, d_m, d_v in zip(
+            self.parameters,
+            self.gradients,
+            hessian_delta,
+            delta_theta,
+            delta_m,
+            delta_v,
+        ):
+            group = self.groups[id(parameter)]
+            state = self.optimizer.state[parameter]
+            beta1, beta2 = group["betas"]
+            step = state["step"]
+            step_value = float(step.item() if isinstance(step, torch.Tensor) else step) + 1.0
+            sign = -1.0 if group.get("maximize", False) else 1.0
+            base_gradient = sign * gradient
+            delta_gradient = sign * h_delta
+            moment = state["exp_avg"]
+            second = state["exp_avg_sq"]
+            next_m = beta1 * moment + (1.0 - beta1) * base_gradient
+            next_v = beta2 * second + (1.0 - beta2) * base_gradient.square()
+            next_delta_m = beta1 * d_m + (1.0 - beta1) * delta_gradient
+            next_delta_v = beta2 * d_v + 2.0 * (1.0 - beta2) * base_gradient * delta_gradient
+            correction1 = 1.0 - beta1**step_value
+            correction2 = 1.0 - beta2**step_value
+            m_hat = next_m / correction1
+            v_hat = next_v / correction2
+            delta_m_hat = next_delta_m / correction1
+            delta_v_hat = next_delta_v / correction2
+            root = v_hat.sqrt()
+            denominator = root + group["eps"]
+            delta_ratio = delta_m_hat / denominator
+            zero_root = root == 0
+            if torch.any(zero_root & (m_hat != 0)):
+                raise ValueError("invalid AdamW state: nonzero first moment with zero second moment")
+            denominator_sensitivity = torch.where(
+                zero_root,
+                torch.zeros_like(root),
+                m_hat / (2.0 * root * denominator.square()),
+            )
+            delta_ratio = delta_ratio - denominator_sensitivity * delta_v_hat
+            learning_rate = float(group["lr"])
+            weight_decay = float(group["weight_decay"])
+            out_theta.append((1.0 - learning_rate * weight_decay) * d_theta - learning_rate * delta_ratio)
+            out_m.append(next_delta_m)
+            out_v.append(next_delta_v)
+        return torch.cat(
+            (self._flatten(out_theta), self._flatten(out_m), self._flatten(out_v))
+        )
+
+    def matvec_numpy(self, vector: np.ndarray) -> np.ndarray:
+        device = self.parameters[0].device
+        value = torch.from_numpy(np.asarray(vector, dtype=np.float64)).to(device)
+        return self.matvec_torch(value).detach().cpu().double().numpy()
+
+    def dense_jacobian(self) -> np.ndarray:
+        basis = np.eye(self.dimension, dtype=np.float64)
+        return np.column_stack([self.matvec_numpy(basis[:, index]) for index in range(self.dimension)])
+
+    def dominant_eigenvalues(
+        self,
+        *,
+        count: int = 3,
+        tolerance: float = 1e-3,
+        max_iterations: int = 100,
+        seed: int = 0,
+    ) -> np.ndarray:
+        if count <= 0:
+            raise ValueError("eigenvalue count must be positive")
+        if self.dimension <= max(8, count + 2):
+            values = np.linalg.eigvals(self.dense_jacobian())
+            return values[np.argsort(np.abs(values))[::-1]][:count]
+        operator = LinearOperator(
+            (self.dimension, self.dimension), matvec=self.matvec_numpy, dtype=np.float64
+        )
+        rng = np.random.default_rng(seed)
+        values = eigs(
+            operator,
+            k=min(count, self.dimension - 2),
+            which="LM",
+            v0=rng.standard_normal(self.dimension),
+            tol=tolerance,
+            maxiter=max_iterations,
+            return_eigenvectors=False,
+        )
+        return values[np.argsort(np.abs(values))[::-1]]

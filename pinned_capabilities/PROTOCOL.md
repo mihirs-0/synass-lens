@@ -1,6 +1,6 @@
 # Pinned capabilities: bistability, memory, and early warning in neural-network training
 
-**Prospective protocol v1.2.1 — pilot-informed, not a pristine preregistration**
+**Prospective protocol v1.2.2 — pilot-informed, not a pristine preregistration**
 
 This document freezes all new decisions before the new gate suite is run. It
 is informed by existing MBC experiments, including the order-0 `q*` result,
@@ -138,8 +138,10 @@ lambda_C = (g^T D H D g) / (g^T D g).
 ```
 
 The suite reports this approximation, the largest eigenvalue of
-`D^(1/2) H D^(1/2)`, and a finite-difference multiplier of the augmented
-`(theta,m,v)` one-step Adam map. The augmented multiplier is the primary local
+`D^(1/2) H D^(1/2)`, and the dominant eigenvalues of the augmented
+`(theta,m,v)` one-step Adam map. The augmented Jacobian is applied matrix-free
+using exact Hessian-vector products and is checked against centered finite
+differences on a tractable system. Its spectral radius is the primary local
 predictor because momentum and second-moment feedback change Adam's stability
 constant. The deep-linear positive control calibrates the numerical pipeline;
 it does not pretend that conditional binding is a linear task.
@@ -328,3 +330,11 @@ order-zero model, making empirical chance mean plus five SD equal zero. An
 absolute 90% exact-match floor was added to the expressed-state definition.
 The smoke is infrastructure validation only; no Gate 0 or Gate 1 outcome had
 been run or inspected.
+
+### 2026-07-15 — version 1.2.2, augmented-map implementation clarification
+
+The originally proposed finite-difference augmented multiplier was replaced
+by dominant eigenvalues of the exact matrix-free one-step Jacobian, with a
+finite-difference equality test on a small system. Spectral radius is invariant
+to rescaling the weight and moment coordinates; a raw directional response
+norm is not. This changes the numerical method, not the Gate 0 decision rule.
