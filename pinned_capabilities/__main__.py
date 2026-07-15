@@ -10,6 +10,8 @@ from pathlib import Path
 from .config import MBCExperimentConfig, MetricConfig, ProtocolConfig
 from .experiment import JSONLWriter, MBCExperiment
 from .gate0 import deep_linear_control
+from .gate0_boundary import geometric_erasure_bisection, run_acquisition_branch
+from .local_measurement import measure_checkpoint_local_stability
 from .manifest import freeze_manifest
 from .references import empirical_constant_machine, load_reference_bands
 from .reference_run import run_reference_ensemble
@@ -73,6 +75,33 @@ def main() -> None:
     hysteresis.add_argument("--dwell-multiplier", type=int, default=1)
     hysteresis.add_argument("--output", type=Path, required=True)
     hysteresis.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    local = subparsers.add_parser(
+        "local-stability", help="measure registered Gate 0 predictors at one checkpoint"
+    )
+    local.add_argument("--snapshot", type=Path, required=True)
+    local.add_argument("--seed", type=int, required=True)
+    local.add_argument("--learning-rate", type=float, required=True)
+    local.add_argument("--output", type=Path, required=True)
+    local.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    erasure = subparsers.add_parser(
+        "erasure-boundary", help="run a manifest-frozen geometric Gate 0 erasure bisection"
+    )
+    erasure.add_argument("--reference", type=Path, required=True)
+    erasure.add_argument("--snapshot", type=Path, required=True)
+    erasure.add_argument("--seed", type=int, required=True)
+    erasure.add_argument("--lower-learning-rate", type=float, required=True)
+    erasure.add_argument("--upper-learning-rate", type=float, required=True)
+    erasure.add_argument("--output", type=Path, required=True)
+    erasure.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    acquisition = subparsers.add_parser(
+        "acquisition", help="run one censored Gate 0 acquisition branch"
+    )
+    acquisition.add_argument("--reference", type=Path, required=True)
+    acquisition.add_argument("--snapshot", type=Path, required=True)
+    acquisition.add_argument("--seed", type=int, required=True)
+    acquisition.add_argument("--learning-rate", type=float, required=True)
+    acquisition.add_argument("--output", type=Path, required=True)
+    acquisition.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     args = parser.parse_args()
     config = ProtocolConfig()
     if args.command == "freeze":
@@ -165,6 +194,89 @@ def main() -> None:
             dwell_multiplier=args.dwell_multiplier,
         )
         print(json.dumps(summary, indent=2, sort_keys=True))
+    elif args.command == "local-stability":
+        experiment_config = replace(
+            config.experiment, seed=args.seed, device=args.device
+        )
+        frozen = {
+            "kind": "gate0_local_stability",
+            "protocol_version": config.protocol_version,
+            "experiment": experiment_config,
+            "metric": config.metric,
+            "gate0": config.gate0,
+            "snapshot": str(args.snapshot),
+            "learning_rate": args.learning_rate,
+        }
+        freeze_manifest(frozen, args.output / "manifest.json", repo=Path.cwd())
+        result = measure_checkpoint_local_stability(
+            experiment_config,
+            config.metric,
+            config.gate0,
+            args.snapshot,
+            args.output / "local_stability.json",
+            learning_rate=args.learning_rate,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+    elif args.command == "erasure-boundary":
+        bands = load_reference_bands(args.reference)
+        thresholds = StateThresholds(**asdict(config.state))
+        experiment_config = replace(
+            config.experiment, seed=args.seed, device=args.device
+        )
+        frozen = {
+            "kind": "gate0_erasure_boundary",
+            "protocol_version": config.protocol_version,
+            "experiment": experiment_config,
+            "metric": config.metric,
+            "state": config.state,
+            "gate0": config.gate0,
+            "reference_path": str(args.reference),
+            "snapshot": str(args.snapshot),
+            "lower_learning_rate": args.lower_learning_rate,
+            "upper_learning_rate": args.upper_learning_rate,
+        }
+        freeze_manifest(frozen, args.output / "manifest.json", repo=Path.cwd())
+        summary = geometric_erasure_bisection(
+            experiment_config,
+            config.metric,
+            config.gate0,
+            bands,
+            args.snapshot,
+            lower_learning_rate=args.lower_learning_rate,
+            upper_learning_rate=args.upper_learning_rate,
+            output_dir=args.output,
+            thresholds=thresholds,
+        )
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    elif args.command == "acquisition":
+        bands = load_reference_bands(args.reference)
+        thresholds = StateThresholds(**asdict(config.state))
+        experiment_config = replace(
+            config.experiment, seed=args.seed, device=args.device
+        )
+        frozen = {
+            "kind": "gate0_acquisition",
+            "protocol_version": config.protocol_version,
+            "experiment": experiment_config,
+            "metric": config.metric,
+            "state": config.state,
+            "gate0": config.gate0,
+            "reference_path": str(args.reference),
+            "snapshot": str(args.snapshot),
+            "learning_rate": args.learning_rate,
+        }
+        freeze_manifest(frozen, args.output / "manifest.json", repo=Path.cwd())
+        result = run_acquisition_branch(
+            experiment_config,
+            config.metric,
+            config.gate0,
+            bands,
+            args.snapshot,
+            args.learning_rate,
+            args.output,
+            thresholds=thresholds,
+        )
+        print(json.dumps(asdict(result), indent=2, sort_keys=True))
     elif args.command == "smoke":
         experiment_config = MBCExperimentConfig(
             seed=0,
