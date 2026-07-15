@@ -67,6 +67,8 @@ both disjoint probes meet the registered 2,000-step slope tolerance. The
 snapshot crossing utility treats Adam moments, step counters, scheduler,
 gradient scaler, RNG, and deterministic data cursor as one optimizer-state
 source, so the memory-location factorial does not silently mix histories.
+Each factorial arm checkpoints transactionally every 1,000 steps and resumes
+from its last complete checkpoint; completed arms are never rerun.
 
 Gate 0 erasure branches likewise reload one complete expressed snapshot. A
 branch counts as erased only after sustained joint return to the order-zero
