@@ -32,6 +32,7 @@ python -m pinned_capabilities prepare-suppressed --help
 python -m pinned_capabilities prepare-expressed --help
 python -m pinned_capabilities hysteresis --help
 python -m pinned_capabilities local-stability --help
+python -m pinned_capabilities local-stability-scan --help
 python -m pinned_capabilities erasure-scan --help
 python -m pinned_capabilities erasure-boundary --help
 python -m pinned_capabilities acquisition --help

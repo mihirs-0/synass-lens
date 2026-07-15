@@ -1,5 +1,9 @@
+import json
 import math
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import torch
@@ -10,6 +14,7 @@ from pinned_capabilities.local_stability import (
     capability_preconditioned_curvature,
     largest_preconditioned_curvature,
 )
+from pinned_capabilities.local_measurement import measure_checkpoint_local_stability_scan
 
 
 class DeepLinearControlTests(unittest.TestCase):
@@ -91,6 +96,40 @@ class CurvatureTests(unittest.TestCase):
         values, vectors = linearization.dominant_eigenpairs(count=2)
         residuals = linearization.eigenpair_residuals(values, vectors)
         self.assertTrue(np.all(residuals < 1e-10))
+
+
+class LocalStabilityScanTests(unittest.TestCase):
+    def test_scan_resumes_completed_rate_cells(self) -> None:
+        def fake_measure(*args, **kwargs):
+            rate = kwargs["learning_rate"]
+            result = {
+                "learning_rate": rate,
+                "augmented_certified": rate == 0.01,
+                "augmented_spectral_radius": 1.0 + rate,
+            }
+            output = Path(args[4])
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(json.dumps(result))
+            return result
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "pinned_capabilities.local_measurement.measure_checkpoint_local_stability",
+            side_effect=fake_measure,
+        ) as measure:
+            summary = measure_checkpoint_local_stability_scan(
+                object(), object(), object(), Path("snapshot"), [0.01, 0.02], Path(directory)
+            )
+            self.assertEqual(measure.call_count, 2)
+            self.assertFalse(summary["all_augmented_eigenpairs_certified"])
+            self.assertEqual(summary["uncertified_learning_rates"], [0.02])
+            with patch(
+                "pinned_capabilities.local_measurement.measure_checkpoint_local_stability",
+                side_effect=AssertionError("completed cells should not rerun"),
+            ):
+                resumed = measure_checkpoint_local_stability_scan(
+                    object(), object(), object(), Path("snapshot"), [0.01, 0.02], Path(directory)
+                )
+            self.assertEqual(resumed, summary)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Sequence
 
 import numpy as np
 import torch
@@ -24,6 +24,17 @@ from .metrics import sample_quartets
 from .parameter_groups import set_learning_rates
 from .snapshot import load_snapshot
 from .training import next_batch
+
+
+def _atomic_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    temporary.replace(path)
+
+
+def _rate_label(learning_rate: float) -> str:
+    return f"eta_{learning_rate:.12g}".replace(".", "p")
 
 
 def measure_checkpoint_local_stability(
@@ -137,6 +148,64 @@ def measure_checkpoint_local_stability(
         ),
     }
     output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    _atomic_json(output_path, result)
     return result
+
+
+def measure_checkpoint_local_stability_scan(
+    experiment_config: MBCExperimentConfig,
+    metric: MetricConfig,
+    gate: Gate0Config,
+    snapshot_path: Path,
+    learning_rates: Sequence[float],
+    output_dir: Path,
+) -> dict:
+    """Measure a manifest-frozen rate grid, resuming at completed rate cells."""
+    rates = sorted(float(rate) for rate in learning_rates)
+    if not rates or any(rate <= 0 for rate in rates):
+        raise ValueError("local-stability scan rates must be positive")
+    if len(set(rates)) != len(rates):
+        raise ValueError("local-stability scan rates must be unique")
+    output_dir = Path(output_dir)
+    results = []
+    for learning_rate in rates:
+        result_path = output_dir / _rate_label(learning_rate) / "local_stability.json"
+        if result_path.exists():
+            result = json.loads(result_path.read_text())
+            if not np.isclose(
+                float(result["learning_rate"]), learning_rate, rtol=1e-12, atol=0.0
+            ):
+                raise ValueError(f"completed local-stability cell at {result_path} has wrong rate")
+        else:
+            result = measure_checkpoint_local_stability(
+                experiment_config,
+                metric,
+                gate,
+                snapshot_path,
+                result_path,
+                learning_rate=learning_rate,
+            )
+        results.append(result)
+        _atomic_json(
+            output_dir / "scan.json",
+            {
+                "complete": len(results) == len(rates),
+                "requested_learning_rates": rates,
+                "measurements": results,
+            },
+        )
+    summary = {
+        "complete": True,
+        "requested_learning_rates": rates,
+        "all_augmented_eigenpairs_certified": all(
+            bool(result["augmented_certified"]) for result in results
+        ),
+        "uncertified_learning_rates": [
+            float(result["learning_rate"])
+            for result in results
+            if not bool(result["augmented_certified"])
+        ],
+        "measurements": results,
+    }
+    _atomic_json(output_dir / "scan.json", summary)
+    return summary

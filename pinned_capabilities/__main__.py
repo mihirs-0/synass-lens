@@ -15,7 +15,10 @@ from .gate0_boundary import (
     run_acquisition_branch,
     run_erasure_scan,
 )
-from .local_measurement import measure_checkpoint_local_stability
+from .local_measurement import (
+    measure_checkpoint_local_stability,
+    measure_checkpoint_local_stability_scan,
+)
 from .manifest import freeze_manifest
 from .memory_surgery_run import run_memory_factorial
 from .references import empirical_constant_machine, load_reference_bands
@@ -121,6 +124,18 @@ def main() -> None:
     local.add_argument("--output", type=Path, required=True)
     local.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     _add_batch_size(local)
+    local_scan = subparsers.add_parser(
+        "local-stability-scan",
+        help="run a resumable multi-rate Gate 0 local-stability scan",
+    )
+    local_scan.add_argument("--snapshot", type=Path, required=True)
+    local_scan.add_argument("--seed", type=int, required=True)
+    local_scan.add_argument("--learning-rates", type=float, nargs="+", required=True)
+    local_scan.add_argument("--output", type=Path, required=True)
+    local_scan.add_argument(
+        "--device", choices=("auto", "cpu", "cuda", "mps"), default="auto"
+    )
+    _add_batch_size(local_scan)
     erasure = subparsers.add_parser(
         "erasure-boundary", help="run a manifest-frozen geometric Gate 0 erasure bisection"
     )
@@ -315,6 +330,27 @@ def main() -> None:
             learning_rate=args.learning_rate,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
+    elif args.command == "local-stability-scan":
+        experiment_config = _runtime_experiment(config, args)
+        frozen = {
+            "kind": "gate0_local_stability_scan",
+            "protocol_version": config.protocol_version,
+            "experiment": experiment_config,
+            "metric": config.metric,
+            "gate0": config.gate0,
+            "snapshot": str(args.snapshot),
+            "learning_rates": tuple(args.learning_rates),
+        }
+        freeze_manifest(frozen, args.output / "manifest.json", repo=Path.cwd())
+        summary = measure_checkpoint_local_stability_scan(
+            experiment_config,
+            config.metric,
+            config.gate0,
+            args.snapshot,
+            args.learning_rates,
+            args.output,
+        )
+        print(json.dumps(summary, indent=2, sort_keys=True))
     elif args.command == "erasure-boundary":
         bands = load_reference_bands(args.reference)
         thresholds = StateThresholds(**asdict(config.state))
