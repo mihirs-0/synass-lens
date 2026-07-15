@@ -4,9 +4,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from pinned_capabilities.config import MBCExperimentConfig
 from pinned_capabilities.gate0_boundary import (
     ErasureResult,
     geometric_erasure_bisection,
+    run_erasure_branch,
     run_erasure_scan,
     sustained_band_entry,
 )
@@ -101,6 +103,68 @@ class ErasureClassifierTests(unittest.TestCase):
                     upper_learning_rate=0.04,
                     output_dir=Path(temporary),
                 )
+
+    def test_erasure_branch_resumes_exact_trajectory(self) -> None:
+        class DummyExperiment:
+            advances = 0
+
+            def __init__(self, config, metric):
+                self.step = 0
+                self.model = object()
+                self.optimizer = object()
+                self.stream = object()
+                self.device = "cpu"
+
+            def advance(self, steps):
+                type(self).advances += 1
+                if type(self).advances == 2:
+                    raise RuntimeError("simulated interruption")
+                self.step += steps
+                return {"train_loss": 0.0, "step": float(self.step)}
+
+            def evaluate(self):
+                return {
+                    "c_int": 8.0,
+                    "exact_match": 1.0,
+                    "delta_z": 1.0,
+                    "full_vocab_ce": 0.01,
+                }
+
+        def fake_load(path, **kwargs):
+            return {"step": 0 if Path(path).name == "source.pt" else 1_000}
+
+        def fake_save(path, **kwargs):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"checkpoint")
+            return path
+
+        gate = SimpleNamespace(erase_hold_steps=2_000, erase_horizon=1_000)
+        metric = SimpleNamespace(eval_every=1_000)
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            "pinned_capabilities.gate0_boundary.MBCExperiment", DummyExperiment
+        ), patch(
+            "pinned_capabilities.gate0_boundary.load_snapshot", side_effect=fake_load
+        ), patch(
+            "pinned_capabilities.gate0_boundary.save_snapshot", side_effect=fake_save
+        ), patch("pinned_capabilities.gate0_boundary.set_learning_rates"):
+            kwargs = dict(
+                experiment_config=MBCExperimentConfig(),
+                metric=metric,
+                gate=gate,
+                reference=self.reference,
+                snapshot_path=Path("source.pt"),
+                learning_rate=0.01,
+                output_dir=Path(temporary),
+            )
+            with self.assertRaisesRegex(RuntimeError, "simulated interruption"):
+                run_erasure_branch(**kwargs)
+            result = run_erasure_branch(**kwargs)
+            self.assertEqual(result.outcome, "retained")
+            logged = [
+                __import__("json").loads(row)
+                for row in (Path(temporary) / "metrics.jsonl").read_text().splitlines()
+            ]
+            self.assertEqual([row["branch_step"] for row in logged], [1_000.0, 2_000.0])
 
 
 if __name__ == "__main__":

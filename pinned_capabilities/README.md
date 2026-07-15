@@ -80,6 +80,8 @@ is a separate outcome and invalidates any bisection path that encounters it.
 The resumable coarse scan reports a bracket only when adjacent tested rates are
 strictly classified as retained and erased; unresolved branches are never
 silently promoted to retained endpoints.
+Each 8,000-step erasure branch also checkpoints transactionally, so scan-level
+resumption never restarts a partially completed fate trajectory.
 
 All state-preparation, Gate 0, hysteresis, memory-surgery, and transition-time
 commands accept `--batch-size`. The override is embedded in the immutable

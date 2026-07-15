@@ -11,7 +11,7 @@ from typing import Dict, Optional, Sequence
 from .config import Gate0Config, MBCExperimentConfig, MetricConfig
 from .experiment import JSONLWriter, MBCExperiment
 from .parameter_groups import set_learning_rates
-from .snapshot import load_snapshot
+from .snapshot import load_snapshot, save_snapshot
 from .state import (
     ReferenceBands,
     StateThresholds,
@@ -111,20 +111,64 @@ def run_erasure_branch(
     thresholds: Optional[StateThresholds] = None,
 ) -> ErasureResult:
     thresholds = thresholds or StateThresholds()
-    experiment = MBCExperiment(replace(experiment_config, learning_rate=learning_rate), metric)
-    restored = load_snapshot(
-        snapshot_path,
-        model=experiment.model,
-        optimizer=experiment.optimizer,
-        stream=experiment.stream,
-        map_location=experiment.device,
-    )
-    experiment.step = restored["step"]
-    set_learning_rates(experiment.optimizer, learning_rate)
     output_dir = Path(output_dir)
-    writer = JSONLWriter(output_dir / "metrics.jsonl")
-    branch_start = experiment.step
+    result_path = output_dir / "result.json"
+    completed = _load_erasure_result(result_path, learning_rate)
+    if completed is not None:
+        return completed
+    experiment = MBCExperiment(replace(experiment_config, learning_rate=learning_rate), metric)
+    progress_path = output_dir / "progress.json"
+    metrics_path = output_dir / "metrics.jsonl"
     rows = []
+    if progress_path.exists():
+        progress = json.loads(progress_path.read_text())
+        if (
+            progress.get("learning_rate") != learning_rate
+            or int(progress.get("erase_hold_steps", -1)) != gate.erase_hold_steps
+        ):
+            raise ValueError("erasure-branch progress has mismatched controls")
+        checkpoint_path = output_dir / progress["checkpoint_path"]
+        if not checkpoint_path.exists():
+            raise FileNotFoundError("erasure progress references a missing checkpoint")
+        restored = load_snapshot(
+            checkpoint_path,
+            model=experiment.model,
+            optimizer=experiment.optimizer,
+            stream=experiment.stream,
+            map_location=experiment.device,
+        )
+        experiment.step = restored["step"]
+        branch_start = int(progress["branch_start"])
+        completed_steps = int(progress["completed_branch_steps"])
+        active_slot = int(progress["active_slot"])
+        if experiment.step - branch_start != completed_steps:
+            raise ValueError("erasure checkpoint and progress disagree")
+        if not metrics_path.exists():
+            raise FileNotFoundError("erasure progress has no metrics log")
+        logged = [json.loads(line) for line in metrics_path.read_text().splitlines()]
+        logged = [row for row in logged if int(row["branch_step"]) <= completed_steps]
+        if not logged or int(logged[-1]["branch_step"]) != completed_steps:
+            raise ValueError("erasure metrics do not reach the progress checkpoint")
+        metrics_path.write_text(
+            "".join(json.dumps(row, sort_keys=True, allow_nan=False) + "\n" for row in logged)
+        )
+        rows = logged
+    else:
+        if metrics_path.exists():
+            metrics_path.write_text("")
+        restored = load_snapshot(
+            snapshot_path,
+            model=experiment.model,
+            optimizer=experiment.optimizer,
+            stream=experiment.stream,
+            map_location=experiment.device,
+        )
+        experiment.step = restored["step"]
+        branch_start = experiment.step
+        active_slot = -1
+    set_learning_rates(experiment.optimizer, learning_rate)
+    writer = JSONLWriter(metrics_path)
+    checkpoint_every = max(1_000, metric.eval_every)
     while experiment.step - branch_start < gate.erase_hold_steps:
         chunk = min(metric.eval_every, gate.erase_hold_steps - (experiment.step - branch_start))
         training = experiment.advance(chunk)
@@ -133,6 +177,35 @@ def run_erasure_branch(
         row["learning_rate"] = learning_rate
         rows.append(row)
         writer.write({"kind": "gate0_erasure", **row})
+        branch_step = int(row["branch_step"])
+        if branch_step % checkpoint_every == 0 or branch_step == gate.erase_hold_steps:
+            active_slot = 1 if active_slot != 1 else 0
+            checkpoint_path = output_dir / "checkpoints" / f"slot_{active_slot}.pt"
+            temporary = checkpoint_path.with_suffix(".pt.tmp")
+            save_snapshot(
+                temporary,
+                model=experiment.model,
+                optimizer=experiment.optimizer,
+                stream=experiment.stream,
+                step=experiment.step,
+                metadata={
+                    "kind": "gate0_erasure_progress",
+                    "learning_rate": learning_rate,
+                    "branch_start": branch_start,
+                },
+            )
+            temporary.replace(checkpoint_path)
+            _atomic_write_json(
+                progress_path,
+                {
+                    "learning_rate": learning_rate,
+                    "erase_hold_steps": gate.erase_hold_steps,
+                    "branch_start": branch_start,
+                    "completed_branch_steps": branch_step,
+                    "active_slot": active_slot,
+                    "checkpoint_path": str(checkpoint_path.relative_to(output_dir)),
+                },
+            )
     entry = sustained_band_entry(
         rows, reference, branch_end_step=gate.erase_hold_steps, thresholds=thresholds
     )
@@ -162,7 +235,7 @@ def run_erasure_branch(
         final_delta_z=latest["delta_z"],
         final_full_vocab_ce=latest["full_vocab_ce"],
     )
-    _atomic_write_json(output_dir / "result.json", asdict(result))
+    _atomic_write_json(result_path, asdict(result))
     return result
 
 
