@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from .config import MBCExperimentConfig, MetricConfig, ProtocolConfig
 from .experiment import JSONLWriter, MBCExperiment
 from .gate0 import deep_linear_control
 from .manifest import freeze_manifest
-from .references import empirical_constant_machine
+from .references import empirical_constant_machine, load_reference_bands
 from .reference_run import run_reference_ensemble
+from .state import StateThresholds
+from .state_preparation import prepare_suppressed_checkpoint
+from .hysteresis_run import run_hysteresis_cycles
 
 
 def main() -> None:
@@ -50,6 +53,26 @@ def main() -> None:
     )
     reference.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     reference.add_argument("--learning-rate", type=float, default=None)
+    prepare = subparsers.add_parser(
+        "prepare-suppressed", help="construct a validated high-rate suppressed checkpoint"
+    )
+    prepare.add_argument("--reference", type=Path, required=True)
+    prepare.add_argument("--seed", type=int, required=True)
+    prepare.add_argument("--learning-rate", type=float, required=True)
+    prepare.add_argument("--max-steps", type=int, default=20_000)
+    prepare.add_argument("--output", type=Path, required=True)
+    prepare.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    hysteresis = subparsers.add_parser(
+        "hysteresis", help="run transactionally resumable two-cycle Gate 1 sweeps"
+    )
+    hysteresis.add_argument("--reference", type=Path, required=True)
+    hysteresis.add_argument("--snapshot", type=Path, required=True)
+    hysteresis.add_argument("--seed", type=int, required=True)
+    hysteresis.add_argument("--high-learning-rate", type=float, required=True)
+    hysteresis.add_argument("--low-learning-rate", type=float, required=True)
+    hysteresis.add_argument("--dwell-multiplier", type=int, default=1)
+    hysteresis.add_argument("--output", type=Path, required=True)
+    hysteresis.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     args = parser.parse_args()
     config = ProtocolConfig()
     if args.command == "freeze":
@@ -80,6 +103,66 @@ def main() -> None:
             seeds=args.seeds,
             acquisition_budget=args.max_steps,
             output_dir=args.output,
+        )
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    elif args.command == "prepare-suppressed":
+        bands = load_reference_bands(args.reference)
+        thresholds = StateThresholds(**asdict(config.state))
+        experiment_config = replace(
+            config.experiment, seed=args.seed, device=args.device
+        )
+        frozen = {
+            "kind": "suppressed_state_preparation",
+            "protocol_version": config.protocol_version,
+            "experiment": experiment_config,
+            "metric": config.metric,
+            "state": config.state,
+            "reference_path": str(args.reference),
+            "learning_rate": args.learning_rate,
+            "maximum_steps": args.max_steps,
+        }
+        freeze_manifest(frozen, args.output / "manifest.json", repo=Path.cwd())
+        result = prepare_suppressed_checkpoint(
+            experiment_config,
+            config.metric,
+            bands,
+            thresholds,
+            learning_rate=args.learning_rate,
+            maximum_steps=args.max_steps,
+            output_dir=args.output,
+        )
+        print(json.dumps(asdict(result), indent=2, sort_keys=True))
+    elif args.command == "hysteresis":
+        bands = load_reference_bands(args.reference)
+        thresholds = StateThresholds(**asdict(config.state))
+        experiment_config = replace(
+            config.experiment, seed=args.seed, device=args.device
+        )
+        frozen = {
+            "kind": "gate1_hysteresis",
+            "protocol_version": config.protocol_version,
+            "experiment": experiment_config,
+            "metric": config.metric,
+            "state": config.state,
+            "gate1": config.gate1,
+            "reference_path": str(args.reference),
+            "suppressed_snapshot": str(args.snapshot),
+            "high_learning_rate": args.high_learning_rate,
+            "low_learning_rate": args.low_learning_rate,
+            "dwell_multiplier": args.dwell_multiplier,
+        }
+        freeze_manifest(frozen, args.output / "manifest.json", repo=Path.cwd())
+        summary = run_hysteresis_cycles(
+            experiment_config,
+            config.metric,
+            config.gate1,
+            bands,
+            thresholds,
+            args.snapshot,
+            high_learning_rate=args.high_learning_rate,
+            low_learning_rate=args.low_learning_rate,
+            output_dir=args.output,
+            dwell_multiplier=args.dwell_multiplier,
         )
         print(json.dumps(summary, indent=2, sort_keys=True))
     elif args.command == "smoke":

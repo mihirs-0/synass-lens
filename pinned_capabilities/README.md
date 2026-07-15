@@ -18,6 +18,8 @@ python -m pinned_capabilities deep-linear
 python -m pinned_capabilities smoke
 python -m pinned_capabilities reference-smoke
 python -m pinned_capabilities reference --seeds 100 101 102 103 104 105 106 107 108 109
+python -m pinned_capabilities prepare-suppressed --help
+python -m pinned_capabilities hysteresis --help
 python -m unittest discover -s pinned_capabilities/tests -v
 ```
 

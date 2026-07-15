@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import math
+import json
 import statistics
 from collections import Counter
+from pathlib import Path
 from typing import Dict, Mapping, Sequence
 
 from .state import ReferenceBands
@@ -57,3 +59,10 @@ def build_reference_bands(
         q_star_loss_mean=statistics.mean(float(value) for value in q_star_answer_losses),
         q_star_loss_sd=statistics.stdev(float(value) for value in q_star_answer_losses),
     )
+
+
+def load_reference_bands(path) -> ReferenceBands:
+    payload = json.loads(Path(path).read_text())
+    if "bands" not in payload:
+        raise ValueError("reference ensemble is incomplete and has no frozen bands")
+    return ReferenceBands(**payload["bands"])
