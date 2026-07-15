@@ -11,6 +11,7 @@ from pinned_capabilities.gate1 import (
     geometric_levels,
     is_equilibrated,
 )
+from pinned_capabilities.hysteresis_run import _cycle_summary
 from pinned_capabilities.snapshot import load_crossed_snapshot, save_snapshot
 
 
@@ -34,6 +35,24 @@ class DwellTests(unittest.TestCase):
         self.assertTrue(is_equilibrated(rows, plateau_sd=0.02))
         rows[-1]["probe_1_c_int"] += 10
         self.assertFalse(is_equilibrated(rows, plateau_sd=0.02))
+
+    def test_cycle_summary_requires_eligible_directional_states(self) -> None:
+        rows = [
+            {"cycle": 1, "direction": "down", "learning_rate": 0.02,
+             "equilibrated": True, "state": "suppressed"},
+            {"cycle": 1, "direction": "down", "learning_rate": 0.01,
+             "equilibrated": True, "state": "expressed"},
+            {"cycle": 1, "direction": "up", "learning_rate": 0.01,
+             "equilibrated": True, "state": "expressed"},
+            {"cycle": 1, "direction": "up", "learning_rate": 0.02,
+             "equilibrated": False, "state": "suppressed"},
+            {"cycle": 1, "direction": "up", "learning_rate": 0.03,
+             "equilibrated": True, "state": "suppressed"},
+        ]
+        summary = _cycle_summary(rows, 1)
+        self.assertEqual(summary["eta_on"], 0.01)
+        self.assertEqual(summary["eta_off"], 0.03)
+        self.assertEqual(summary["rho"], 3.0)
 
 
 class MemorySurgeryTests(unittest.TestCase):
