@@ -17,7 +17,7 @@ from .memory_surgery_run import run_memory_factorial
 from .references import empirical_constant_machine, load_reference_bands
 from .reference_run import run_reference_ensemble
 from .state import StateThresholds
-from .state_preparation import prepare_suppressed_checkpoint
+from .state_preparation import prepare_expressed_checkpoint, prepare_suppressed_checkpoint
 from .hysteresis_run import run_hysteresis_cycles
 
 
@@ -63,8 +63,20 @@ def main() -> None:
     prepare.add_argument("--seed", type=int, required=True)
     prepare.add_argument("--learning-rate", type=float, required=True)
     prepare.add_argument("--max-steps", type=int, default=20_000)
+    prepare.add_argument("--save-at-step", type=int, default=None)
     prepare.add_argument("--output", type=Path, required=True)
     prepare.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    prepare_expressed = subparsers.add_parser(
+        "prepare-expressed", help="construct a stably expressed checkpoint at a fixed step"
+    )
+    prepare_expressed.add_argument("--reference", type=Path, required=True)
+    prepare_expressed.add_argument("--seed", type=int, required=True)
+    prepare_expressed.add_argument("--learning-rate", type=float, required=True)
+    prepare_expressed.add_argument("--save-at-step", type=int, required=True)
+    prepare_expressed.add_argument("--output", type=Path, required=True)
+    prepare_expressed.add_argument(
+        "--device", choices=("auto", "cpu", "cuda", "mps"), default="auto"
+    )
     hysteresis = subparsers.add_parser(
         "hysteresis", help="run transactionally resumable two-cycle Gate 1 sweeps"
     )
@@ -161,6 +173,7 @@ def main() -> None:
             "reference_path": str(args.reference),
             "learning_rate": args.learning_rate,
             "maximum_steps": args.max_steps,
+            "save_at_step": args.save_at_step,
         }
         freeze_manifest(frozen, args.output / "manifest.json", repo=Path.cwd())
         result = prepare_suppressed_checkpoint(
@@ -170,6 +183,34 @@ def main() -> None:
             thresholds,
             learning_rate=args.learning_rate,
             maximum_steps=args.max_steps,
+            output_dir=args.output,
+            save_at_step=args.save_at_step,
+        )
+        print(json.dumps(asdict(result), indent=2, sort_keys=True))
+    elif args.command == "prepare-expressed":
+        bands = load_reference_bands(args.reference)
+        thresholds = StateThresholds(**asdict(config.state))
+        experiment_config = replace(
+            config.experiment, seed=args.seed, device=args.device
+        )
+        frozen = {
+            "kind": "expressed_state_preparation",
+            "protocol_version": config.protocol_version,
+            "experiment": experiment_config,
+            "metric": config.metric,
+            "state": config.state,
+            "reference_path": str(args.reference),
+            "learning_rate": args.learning_rate,
+            "save_at_step": args.save_at_step,
+        }
+        freeze_manifest(frozen, args.output / "manifest.json", repo=Path.cwd())
+        result = prepare_expressed_checkpoint(
+            experiment_config,
+            config.metric,
+            bands,
+            thresholds,
+            learning_rate=args.learning_rate,
+            save_at_step=args.save_at_step,
             output_dir=args.output,
         )
         print(json.dumps(asdict(result), indent=2, sort_keys=True))
