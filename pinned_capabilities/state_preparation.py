@@ -6,11 +6,11 @@ import json
 import math
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 from .config import MBCExperimentConfig, MetricConfig
 from .experiment import JSONLWriter, MBCExperiment
-from .snapshot import save_snapshot
+from .snapshot import load_snapshot, save_snapshot
 from .state import ReferenceBands, StateThresholds, is_expressed, is_jointly_suppressed
 
 
@@ -25,6 +25,111 @@ class StatePreparationResult:
     delta_z: float
     full_vocab_ce: float
     snapshot_path: Optional[str]
+
+
+def _atomic_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    temporary.replace(path)
+
+
+def _completed_result(
+    path: Path, *, seed: int, learning_rate: float
+) -> Optional[StatePreparationResult]:
+    if not path.exists():
+        return None
+    result = StatePreparationResult(**json.loads(path.read_text()))
+    if result.seed != seed or result.learning_rate != learning_rate:
+        raise ValueError("completed state-preparation result has mismatched controls")
+    return result
+
+
+def _resume_or_start(
+    experiment: MBCExperiment,
+    output_dir: Path,
+    *,
+    kind: str,
+    controls: Dict[str, object],
+) -> tuple[list[dict], dict, int, JSONLWriter, bool]:
+    progress_path = output_dir / "progress.json"
+    metrics_path = output_dir / "metrics.jsonl"
+    rows: list[dict] = []
+    if progress_path.exists():
+        progress = json.loads(progress_path.read_text())
+        for key, value in controls.items():
+            if progress.get(key) != value:
+                raise ValueError(f"state-preparation progress has mismatched {key}")
+        checkpoint_path = output_dir / progress["checkpoint_path"]
+        if not checkpoint_path.exists():
+            raise FileNotFoundError("state-preparation progress references a missing checkpoint")
+        restored = load_snapshot(
+            checkpoint_path,
+            model=experiment.model,
+            optimizer=experiment.optimizer,
+            stream=experiment.stream,
+            map_location=experiment.device,
+        )
+        experiment.step = restored["step"]
+        completed_step = int(progress["completed_step"])
+        if experiment.step != completed_step:
+            raise ValueError("state-preparation checkpoint and progress disagree")
+        if not metrics_path.exists():
+            raise FileNotFoundError("state-preparation progress has no metrics log")
+        logged = [json.loads(line) for line in metrics_path.read_text().splitlines()]
+        logged = [
+            row
+            for row in logged
+            if row["kind"] == f"{kind}_start" or int(row["step"]) <= completed_step
+        ]
+        metrics_path.write_text(
+            "".join(json.dumps(row, sort_keys=True, allow_nan=False) + "\n" for row in logged)
+        )
+        rows = [row for row in logged if row["kind"] == kind]
+        if not rows or int(rows[-1]["step"]) != completed_step:
+            raise ValueError("state-preparation metrics do not reach the progress checkpoint")
+        latest = rows[-1]
+        active_slot = int(progress["active_slot"])
+        fresh = False
+    else:
+        if metrics_path.exists():
+            metrics_path.write_text("")
+        latest = experiment.evaluate()
+        active_slot = -1
+        fresh = True
+    return rows, latest, active_slot, JSONLWriter(metrics_path), fresh
+
+
+def _checkpoint_progress(
+    experiment: MBCExperiment,
+    output_dir: Path,
+    *,
+    kind: str,
+    controls: Dict[str, object],
+    active_slot: int,
+) -> int:
+    active_slot = 1 if active_slot != 1 else 0
+    checkpoint_path = output_dir / "checkpoints" / f"slot_{active_slot}.pt"
+    temporary = checkpoint_path.with_suffix(".pt.tmp")
+    save_snapshot(
+        temporary,
+        model=experiment.model,
+        optimizer=experiment.optimizer,
+        stream=experiment.stream,
+        step=experiment.step,
+        metadata={"kind": f"{kind}_progress", **controls},
+    )
+    temporary.replace(checkpoint_path)
+    _atomic_json(
+        output_dir / "progress.json",
+        {
+            **controls,
+            "completed_step": experiment.step,
+            "active_slot": active_slot,
+            "checkpoint_path": str(checkpoint_path.relative_to(output_dir)),
+        },
+    )
+    return active_slot
 
 
 def prepare_suppressed_checkpoint(
@@ -45,11 +150,24 @@ def prepare_suppressed_checkpoint(
     if save_at_step is not None and save_at_step % metric.eval_every:
         raise ValueError("save_at_step must align with the metric evaluation cadence")
     output_dir = Path(output_dir)
+    result_path = output_dir / "result.json"
+    completed = _completed_result(
+        result_path, seed=experiment_config.seed, learning_rate=learning_rate
+    )
+    if completed is not None:
+        return completed
     experiment = MBCExperiment(replace(experiment_config, learning_rate=learning_rate), metric)
-    writer = JSONLWriter(output_dir / "metrics.jsonl")
-    rows = []
-    latest = experiment.evaluate()
-    writer.write({"kind": "suppressed_preparation_start", **latest})
+    controls: Dict[str, object] = {
+        "seed": experiment_config.seed,
+        "learning_rate": learning_rate,
+        "maximum_steps": maximum_steps,
+        "save_at_step": save_at_step,
+    }
+    rows, latest, active_slot, writer, fresh = _resume_or_start(
+        experiment, output_dir, kind="suppressed_preparation", controls=controls
+    )
+    if fresh:
+        writer.write({"kind": "suppressed_preparation_start", **latest})
     outcome = "censored"
     snapshot_path: Optional[Path] = None
     while experiment.step < maximum_steps:
@@ -58,6 +176,14 @@ def prepare_suppressed_checkpoint(
         latest = {**training, **experiment.evaluate(), "learning_rate": learning_rate}
         rows.append(latest)
         writer.write({"kind": "suppressed_preparation", **latest})
+        if experiment.step % max(1_000, metric.eval_every) == 0:
+            active_slot = _checkpoint_progress(
+                experiment,
+                output_dir,
+                kind="suppressed_preparation",
+                controls=controls,
+                active_slot=active_slot,
+            )
         if is_jointly_suppressed(rows, reference, thresholds) and (
             save_at_step is None or experiment.step >= save_at_step
         ):
@@ -96,10 +222,7 @@ def prepare_suppressed_checkpoint(
         full_vocab_ce=latest["full_vocab_ce"],
         snapshot_path=str(snapshot_path) if snapshot_path is not None else None,
     )
-    output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "result.json").write_text(
-        json.dumps(asdict(result), indent=2, sort_keys=True) + "\n"
-    )
+    _atomic_json(result_path, asdict(result))
     return result
 
 
@@ -118,17 +241,40 @@ def prepare_expressed_checkpoint(
     if save_at_step % metric.eval_every or metric.solved_hold_steps % metric.eval_every:
         raise ValueError("expressed save and hold steps must align with evaluation cadence")
     output_dir = Path(output_dir)
+    result_path = output_dir / "result.json"
+    completed = _completed_result(
+        result_path, seed=experiment_config.seed, learning_rate=learning_rate
+    )
+    if completed is not None:
+        return completed
     experiment = MBCExperiment(replace(experiment_config, learning_rate=learning_rate), metric)
-    writer = JSONLWriter(output_dir / "metrics.jsonl")
-    rows = []
-    latest = experiment.evaluate()
-    writer.write({"kind": "expressed_preparation_start", **latest})
+    controls = {
+        "seed": experiment_config.seed,
+        "learning_rate": learning_rate,
+        "save_at_step": save_at_step,
+    }
+    rows, latest, active_slot, writer, fresh = _resume_or_start(
+        experiment, output_dir, kind="expressed_preparation", controls=controls
+    )
+    if fresh:
+        writer.write({"kind": "expressed_preparation_start", **latest})
     while experiment.step < save_at_step:
         chunk = min(metric.eval_every, save_at_step - experiment.step)
         training = experiment.advance(chunk)
         latest = {**training, **experiment.evaluate(), "learning_rate": learning_rate}
         rows.append(latest)
         writer.write({"kind": "expressed_preparation", **latest})
+        if (
+            experiment.step % max(1_000, metric.eval_every) == 0
+            or experiment.step == save_at_step
+        ):
+            active_slot = _checkpoint_progress(
+                experiment,
+                output_dir,
+                kind="expressed_preparation",
+                controls=controls,
+                active_slot=active_slot,
+            )
         if (
             not math.isfinite(latest["full_vocab_ce"])
             or latest["full_vocab_ce"] > 5.0 * reference.q_star_loss_mean
@@ -171,8 +317,5 @@ def prepare_expressed_checkpoint(
         full_vocab_ce=latest["full_vocab_ce"],
         snapshot_path=str(snapshot_path) if snapshot_path is not None else None,
     )
-    output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "result.json").write_text(
-        json.dumps(asdict(result), indent=2, sort_keys=True) + "\n"
-    )
+    _atomic_json(result_path, asdict(result))
     return result

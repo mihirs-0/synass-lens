@@ -85,3 +85,6 @@ All state-preparation, Gate 0, hysteresis, memory-surgery, and transition-time
 commands accept `--batch-size`. The override is embedded in the immutable
 manifest so the registered `(32, 128, 512, 2048)` mechanism cells cannot be
 confused with post-hoc reruns.
+State preparation itself checkpoints every 1,000 steps with alternating
+transactional slots, preserving the exact optimizer, RNG, and data cursor on
+resume.
