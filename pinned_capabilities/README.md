@@ -5,6 +5,12 @@ This package implements the staged falsification program in
 so that prospective decisions, pilot evidence, and legacy analyses cannot be
 silently mixed.
 
+[`NOVELTY_AUDIT.md`](NOVELTY_AUDIT.md) records the field-level novelty bar as
+of 2026-07-15. In particular, hysteresis and noise-driven metastable escape in
+deep linear networks are prior art; the suite must add nonlinear behavioral
+state, complete memory localization, mechanism discrimination, or useful
+training-time control.
+
 The suite starts from behavioral measurements, not a parameter-space
 "capability direction." Its primary metric is a union-centered 2x2
 interaction contrast that cancels additive B-only and z-only shortcuts.

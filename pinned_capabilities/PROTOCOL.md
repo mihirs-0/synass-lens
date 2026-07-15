@@ -1,6 +1,6 @@
 # Pinned capabilities: bistability, memory, and early warning in neural-network training
 
-**Prospective protocol v1.2.4 — pilot-informed, not a pristine preregistration**
+**Prospective protocol v1.3.0 — pilot-informed, not a pristine preregistration**
 
 This document freezes all new decisions before the new gate suite is run. It
 is informed by existing MBC experiments, including the order-0 `q*` result,
@@ -320,7 +320,9 @@ transitions without detectable critical slowing.
 ## 8. Outcome tree
 
 - Gate 0 kills: capability-resolved local stability note; stop.
-- Gate 1 passes alone: hysteresis and memory-location paper.
+- Gate 1 passes alone: a paper only if the full memory-location surgery and
+  deterministic/noise mechanism classification are clean; hysteresis alone is
+  prior art after Ersoy and Wiesner (2026).
 - Gates 1 and 2 pass: predictive module escape instrument.
 - Gate 3 additionally passes: early warning and an empirical taxonomy of
   progressing, pinned, and unreachable absence.
@@ -366,3 +368,15 @@ outcome or boundary had been generated.
 The differentiable capability-direction probe was fixed at 32 `B` values and
 256 quartets before any neural local-stability measurement. The full state
 probes remain unchanged and cannot be replaced by this smaller assay.
+
+### 2026-07-15 — version 1.3.0, field-novelty threshold
+
+A literature refresh identified Ersoy and Wiesner (arXiv:2606.17120, June
+2026), which already demonstrates neural-training hysteresis, metastable
+states, and Arrhenius noise-driven escape in deep linear networks. The outcome
+tree now states that hysteresis alone is insufficient: Gate 1 must also locate
+training-state memory and classify deterministic versus noise-maintained
+pinning. This raises the publication bar before any Gate 0 or Gate 1 outcome.
+The ten-seed behavioral reference ensemble had started under v1.2.4; because
+v1.3.0 changes no reference measurement, threshold, seed, or training rule,
+that content-addressed ensemble remains eligible for subsequent gates.
