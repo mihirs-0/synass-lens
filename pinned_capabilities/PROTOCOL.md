@@ -1,6 +1,6 @@
 # Pinned capabilities: bistability, memory, and early warning in neural-network training
 
-**Prospective protocol v1.2.2 — pilot-informed, not a pristine preregistration**
+**Prospective protocol v1.2.3 — pilot-informed, not a pristine preregistration**
 
 This document freezes all new decisions before the new gate suite is run. It
 is informed by existing MBC experiments, including the order-0 `q*` result,
@@ -116,8 +116,10 @@ The original 8k bisection would misclassify slow acquisition as stability.
 Gate 0 therefore keeps the directions separate:
 
 - **Erasure boundary:** from a common expressed checkpoint, the smallest
-  learning rate that returns the model to the suppressed band within 2,000
-  steps and keeps it there for the remainder of an 8,000-step hold.
+  learning rate that returns the model to both the suppressed `C_int` band and
+  the empirical `q*` loss band within 2,000 steps and keeps both there for the
+  remainder of an 8,000-step hold. Divergent high-rate states do not count as
+  erasure and cannot serve as the upper endpoint of a bisection bracket.
 - **Acquisition boundary:** from a common suppressed checkpoint, the largest
   learning rate that reaches the registered transition within 40,000 steps.
 
@@ -338,3 +340,11 @@ by dominant eigenvalues of the exact matrix-free one-step Jacobian, with a
 finite-difference equality test on a small system. Spectral radius is invariant
 to rescaling the weight and moment coordinates; a raw directional response
 norm is not. This changes the numerical method, not the Gate 0 decision rule.
+
+### 2026-07-15 — version 1.2.3, erasure-smoke correction
+
+An infrastructure erasure smoke showed that `C_int` alone can re-enter its
+order-zero interval while full-vocabulary loss diverges. Gate 0 erasure now
+requires sustained membership in both the `C_int` and empirical `q*` loss
+bands, and divergent branches are explicitly excluded from bisection. No gate
+outcome or boundary had been generated.

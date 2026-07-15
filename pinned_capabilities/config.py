@@ -54,6 +54,7 @@ class StateConfig:
 @dataclass(frozen=True)
 class Gate0Config:
     erase_horizon: int = 2_000
+    erase_hold_steps: int = 8_000
     acquire_horizon: int = 40_000
     boundary_bisection_steps: int = 12
     batch_sizes: Tuple[int, ...] = (32, 128, 512, 2_048)
@@ -112,7 +113,7 @@ class MBCExperimentConfig:
 
 @dataclass(frozen=True)
 class ProtocolConfig:
-    protocol_version: str = "1.2.2"
+    protocol_version: str = "1.2.3"
     output_root: str = "pinned_capabilities/results"
     metric: MetricConfig = field(default_factory=MetricConfig)
     state: StateConfig = field(default_factory=StateConfig)
@@ -126,6 +127,8 @@ class ProtocolConfig:
         self.experiment.validate()
         if self.gate0.erase_horizon >= self.gate0.acquire_horizon:
             raise ValueError("erase_horizon must be shorter than acquire_horizon")
+        if self.gate0.erase_horizon >= self.gate0.erase_hold_steps:
+            raise ValueError("erasure entry horizon must be shorter than the complete hold")
         if self.gate1.extended_dwell_multiplier <= 1:
             raise ValueError("extended dwell must exceed base dwell")
         if self.gate1.maximum_dwell_steps < self.gate1.base_dwell_steps:
