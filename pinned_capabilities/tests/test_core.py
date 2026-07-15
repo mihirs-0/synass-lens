@@ -16,6 +16,7 @@ from pinned_capabilities.state import (
     first_transition_step,
     is_expressed,
     is_jointly_suppressed,
+    is_flat_loss,
     is_suppressed,
 )
 
@@ -67,6 +68,9 @@ class StateTests(unittest.TestCase):
         self.assertTrue(is_jointly_suppressed(flat_rows, flat_reference, self.thresholds))
         flat_rows[-1]["full_vocab_ce"] = 20.0
         self.assertFalse(is_jointly_suppressed(flat_rows, flat_reference, self.thresholds))
+        tight_reference = ReferenceBands(0.0, 1.0, 10.0, 0.1, 0.02, 2.0, 0.001)
+        self.assertTrue(is_flat_loss(2.039, tight_reference))
+        self.assertFalse(is_flat_loss(2.05, tight_reference))
         self.assertTrue(is_expressed(6.0, 0.9, self.reference, self.thresholds))
         self.assertFalse(is_expressed(6.0, 0.89, self.reference, self.thresholds))
         transition_rows = rows + [

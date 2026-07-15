@@ -39,6 +39,7 @@ class StateConfig:
     expressed_exact_match_floor: float = 0.90
     transition_fraction: float = 0.2
     no_return_duration: int = 1_000
+    flat_loss_relative_tolerance: float = 0.02
 
     def validate(self) -> None:
         if self.plateau_sd_multiplier <= 0:
@@ -49,6 +50,8 @@ class StateConfig:
             raise ValueError("require 0 < transition_fraction < expressed_fraction <= 1")
         if not 0 < self.expressed_exact_match_floor <= 1:
             raise ValueError("expressed exact-match floor must be in (0,1]")
+        if not 0 < self.flat_loss_relative_tolerance < 1:
+            raise ValueError("flat-loss relative tolerance must be in (0,1)")
 
 
 @dataclass(frozen=True)
@@ -118,7 +121,7 @@ class MBCExperimentConfig:
 
 @dataclass(frozen=True)
 class ProtocolConfig:
-    protocol_version: str = "1.3.0"
+    protocol_version: str = "1.3.1"
     output_root: str = "pinned_capabilities/results"
     metric: MetricConfig = field(default_factory=MetricConfig)
     state: StateConfig = field(default_factory=StateConfig)

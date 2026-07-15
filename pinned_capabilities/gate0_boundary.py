@@ -54,13 +54,24 @@ def sustained_band_entry(
     thresholds = thresholds or StateThresholds()
     low, high = plateau_bounds(reference, thresholds)
     for index, row in enumerate(rows):
-        if not (low <= row["c_int"] <= high and is_flat_loss(row["full_vocab_ce"], reference)):
+        if not (
+            low <= row["c_int"] <= high
+            and is_flat_loss(
+                row["full_vocab_ce"],
+                reference,
+                relative_tolerance=thresholds.flat_loss_relative_tolerance,
+            )
+        ):
             continue
         if int(rows[-1]["branch_step"]) < branch_end_step:
             return None
         if all(
             low <= future["c_int"] <= high
-            and is_flat_loss(future["full_vocab_ce"], reference)
+            and is_flat_loss(
+                future["full_vocab_ce"],
+                reference,
+                relative_tolerance=thresholds.flat_loss_relative_tolerance,
+            )
             for future in rows[index:]
         ):
             return int(row["branch_step"])
@@ -212,7 +223,11 @@ def run_acquisition_branch(
     low, high = plateau_bounds(reference, thresholds)
     if not (
         low <= latest["c_int"] <= high
-        and is_flat_loss(latest["full_vocab_ce"], reference)
+        and is_flat_loss(
+            latest["full_vocab_ce"],
+            reference,
+            relative_tolerance=thresholds.flat_loss_relative_tolerance,
+        )
     ):
         raise ValueError("acquisition branch must start from a suppressed flat-loss snapshot")
     writer.write(

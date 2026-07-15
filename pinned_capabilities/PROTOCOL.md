@@ -99,6 +99,11 @@ seeds succeed.
   order-0 band during the next 1,000 steps.
 - **Flat loss:** full-vocabulary loss stays inside the empirical `q*` band.
 
+The `q*` band radius is the larger of three reference-seed SDs and 2% of the
+mean `q*` answer-token loss. The relative floor prevents near-identical
+analytic entropy values across randomly generated datasets from imposing an
+unphysical sub-0.001-nat tolerance on a trained plateau.
+
 Reference generation is frozen in its own manifest. Gate outcomes cannot
 update these bands.
 
@@ -380,3 +385,12 @@ pinning. This raises the publication bar before any Gate 0 or Gate 1 outcome.
 The ten-seed behavioral reference ensemble had started under v1.2.4; because
 v1.3.0 changes no reference measurement, threshold, seed, or training rule,
 that content-addressed ensemble remains eligible for subsequent gates.
+
+### 2026-07-15 — version 1.3.1, q-star band calibration
+
+Production reference calibrations showed that the analytic `q*` entropy has
+extremely small between-dataset SD, much smaller than ordinary trained-plateau
+fluctuation. A preregistered 2% relative radius was added as a floor under the
+three-SD band before any suppressed checkpoint or gate outcome. Reference
+generation itself is unchanged, so the running v1.2.4 ensemble remains
+eligible.

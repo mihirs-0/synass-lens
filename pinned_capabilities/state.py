@@ -26,6 +26,7 @@ class StateThresholds:
     expressed_exact_match_floor: float = 0.90
     transition_fraction: float = 0.2
     no_return_duration: int = 1_000
+    flat_loss_relative_tolerance: float = 0.02
 
 
 def plateau_bounds(reference: ReferenceBands, thresholds: StateThresholds) -> tuple[float, float]:
@@ -65,10 +66,18 @@ def is_suppressed(
     return all(low <= float(row["c_int"]) <= high for row in window)
 
 
-def is_flat_loss(loss: float, reference: ReferenceBands, sd_multiplier: float = 3.0) -> bool:
+def is_flat_loss(
+    loss: float,
+    reference: ReferenceBands,
+    sd_multiplier: float = 3.0,
+    relative_tolerance: float = 0.02,
+) -> bool:
     if not (reference.q_star_loss_sd >= 0):
         return False
-    radius = sd_multiplier * reference.q_star_loss_sd
+    radius = max(
+        sd_multiplier * reference.q_star_loss_sd,
+        relative_tolerance * abs(reference.q_star_loss_mean),
+    )
     return reference.q_star_loss_mean - radius <= loss <= reference.q_star_loss_mean + radius
 
 
@@ -84,7 +93,12 @@ def is_jointly_suppressed(
     start_step = end_step - thresholds.suppressed_duration
     window = [row for row in rows if int(row["step"]) >= start_step]
     return all(
-        "full_vocab_ce" in row and is_flat_loss(float(row["full_vocab_ce"]), reference)
+        "full_vocab_ce" in row
+        and is_flat_loss(
+            float(row["full_vocab_ce"]),
+            reference,
+            relative_tolerance=thresholds.flat_loss_relative_tolerance,
+        )
         for row in window
     )
 
