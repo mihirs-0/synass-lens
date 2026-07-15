@@ -26,6 +26,22 @@ from .state_preparation import prepare_expressed_checkpoint, prepare_suppressed_
 from .hysteresis_run import run_hysteresis_cycles
 
 
+def _runtime_experiment(config: ProtocolConfig, args: argparse.Namespace) -> MBCExperimentConfig:
+    updates = {"seed": args.seed, "device": args.device}
+    if getattr(args, "batch_size", None) is not None:
+        updates["batch_size"] = args.batch_size
+    return replace(config.experiment, **updates)
+
+
+def _add_batch_size(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="override the frozen default batch size for a registered mechanism cell",
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m pinned_capabilities")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -71,6 +87,7 @@ def main() -> None:
     prepare.add_argument("--save-at-step", type=int, default=None)
     prepare.add_argument("--output", type=Path, required=True)
     prepare.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    _add_batch_size(prepare)
     prepare_expressed = subparsers.add_parser(
         "prepare-expressed", help="construct a stably expressed checkpoint at a fixed step"
     )
@@ -82,6 +99,7 @@ def main() -> None:
     prepare_expressed.add_argument(
         "--device", choices=("auto", "cpu", "cuda", "mps"), default="auto"
     )
+    _add_batch_size(prepare_expressed)
     hysteresis = subparsers.add_parser(
         "hysteresis", help="run transactionally resumable two-cycle Gate 1 sweeps"
     )
@@ -93,6 +111,7 @@ def main() -> None:
     hysteresis.add_argument("--dwell-multiplier", type=int, default=1)
     hysteresis.add_argument("--output", type=Path, required=True)
     hysteresis.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    _add_batch_size(hysteresis)
     local = subparsers.add_parser(
         "local-stability", help="measure registered Gate 0 predictors at one checkpoint"
     )
@@ -101,6 +120,7 @@ def main() -> None:
     local.add_argument("--learning-rate", type=float, required=True)
     local.add_argument("--output", type=Path, required=True)
     local.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    _add_batch_size(local)
     erasure = subparsers.add_parser(
         "erasure-boundary", help="run a manifest-frozen geometric Gate 0 erasure bisection"
     )
@@ -111,6 +131,7 @@ def main() -> None:
     erasure.add_argument("--upper-learning-rate", type=float, required=True)
     erasure.add_argument("--output", type=Path, required=True)
     erasure.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    _add_batch_size(erasure)
     erasure_scan = subparsers.add_parser(
         "erasure-scan", help="run a resumable coarse Gate 0 erasure bracket scan"
     )
@@ -122,6 +143,7 @@ def main() -> None:
     erasure_scan.add_argument(
         "--device", choices=("auto", "cpu", "cuda", "mps"), default="auto"
     )
+    _add_batch_size(erasure_scan)
     acquisition = subparsers.add_parser(
         "acquisition", help="run one censored Gate 0 acquisition branch"
     )
@@ -131,6 +153,7 @@ def main() -> None:
     acquisition.add_argument("--learning-rate", type=float, required=True)
     acquisition.add_argument("--output", type=Path, required=True)
     acquisition.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    _add_batch_size(acquisition)
     memory = subparsers.add_parser(
         "memory-factorial", help="run matched-step weights x optimizer-state surgery"
     )
@@ -142,6 +165,7 @@ def main() -> None:
     memory.add_argument("--challenge-steps", type=int, default=10_000)
     memory.add_argument("--output", type=Path, required=True)
     memory.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    _add_batch_size(memory)
     timing = subparsers.add_parser(
         "transition-time", help="time acquisition or recovery under one fixed low-rate rule"
     )
@@ -154,6 +178,7 @@ def main() -> None:
     timing.add_argument("--reset-optimizer", action="store_true")
     timing.add_argument("--output", type=Path, required=True)
     timing.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    _add_batch_size(timing)
     args = parser.parse_args()
     config = ProtocolConfig()
     if args.command == "freeze":
@@ -189,9 +214,7 @@ def main() -> None:
     elif args.command == "prepare-suppressed":
         bands = load_reference_bands(args.reference)
         thresholds = StateThresholds(**asdict(config.state))
-        experiment_config = replace(
-            config.experiment, seed=args.seed, device=args.device
-        )
+        experiment_config = _runtime_experiment(config, args)
         frozen = {
             "kind": "suppressed_state_preparation",
             "protocol_version": config.protocol_version,
@@ -218,9 +241,7 @@ def main() -> None:
     elif args.command == "prepare-expressed":
         bands = load_reference_bands(args.reference)
         thresholds = StateThresholds(**asdict(config.state))
-        experiment_config = replace(
-            config.experiment, seed=args.seed, device=args.device
-        )
+        experiment_config = _runtime_experiment(config, args)
         frozen = {
             "kind": "expressed_state_preparation",
             "protocol_version": config.protocol_version,
@@ -245,9 +266,7 @@ def main() -> None:
     elif args.command == "hysteresis":
         bands = load_reference_bands(args.reference)
         thresholds = StateThresholds(**asdict(config.state))
-        experiment_config = replace(
-            config.experiment, seed=args.seed, device=args.device
-        )
+        experiment_config = _runtime_experiment(config, args)
         frozen = {
             "kind": "gate1_hysteresis",
             "protocol_version": config.protocol_version,
@@ -276,9 +295,7 @@ def main() -> None:
         )
         print(json.dumps(summary, indent=2, sort_keys=True))
     elif args.command == "local-stability":
-        experiment_config = replace(
-            config.experiment, seed=args.seed, device=args.device
-        )
+        experiment_config = _runtime_experiment(config, args)
         frozen = {
             "kind": "gate0_local_stability",
             "protocol_version": config.protocol_version,
@@ -301,9 +318,7 @@ def main() -> None:
     elif args.command == "erasure-boundary":
         bands = load_reference_bands(args.reference)
         thresholds = StateThresholds(**asdict(config.state))
-        experiment_config = replace(
-            config.experiment, seed=args.seed, device=args.device
-        )
+        experiment_config = _runtime_experiment(config, args)
         frozen = {
             "kind": "gate0_erasure_boundary",
             "protocol_version": config.protocol_version,
@@ -332,9 +347,7 @@ def main() -> None:
     elif args.command == "erasure-scan":
         bands = load_reference_bands(args.reference)
         thresholds = StateThresholds(**asdict(config.state))
-        experiment_config = replace(
-            config.experiment, seed=args.seed, device=args.device
-        )
+        experiment_config = _runtime_experiment(config, args)
         frozen = {
             "kind": "gate0_erasure_scan",
             "protocol_version": config.protocol_version,
@@ -361,9 +374,7 @@ def main() -> None:
     elif args.command == "acquisition":
         bands = load_reference_bands(args.reference)
         thresholds = StateThresholds(**asdict(config.state))
-        experiment_config = replace(
-            config.experiment, seed=args.seed, device=args.device
-        )
+        experiment_config = _runtime_experiment(config, args)
         frozen = {
             "kind": "gate0_acquisition",
             "protocol_version": config.protocol_version,
@@ -390,9 +401,7 @@ def main() -> None:
     elif args.command == "memory-factorial":
         bands = load_reference_bands(args.reference)
         thresholds = StateThresholds(**asdict(config.state))
-        experiment_config = replace(
-            config.experiment, seed=args.seed, device=args.device
-        )
+        experiment_config = _runtime_experiment(config, args)
         frozen = {
             "kind": "gate1_memory_factorial",
             "protocol_version": config.protocol_version,
@@ -421,9 +430,7 @@ def main() -> None:
     elif args.command == "transition-time":
         bands = load_reference_bands(args.reference)
         thresholds = StateThresholds(**asdict(config.state))
-        experiment_config = replace(
-            config.experiment, seed=args.seed, device=args.device
-        )
+        experiment_config = _runtime_experiment(config, args)
         frozen = {
             "kind": "gate1_transition_timing",
             "protocol_version": config.protocol_version,

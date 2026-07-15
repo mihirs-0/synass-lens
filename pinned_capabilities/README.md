@@ -79,3 +79,8 @@ is a separate outcome and invalidates any bisection path that encounters it.
 The resumable coarse scan reports a bracket only when adjacent tested rates are
 strictly classified as retained and erased; unresolved branches are never
 silently promoted to retained endpoints.
+
+All state-preparation, Gate 0, hysteresis, memory-surgery, and transition-time
+commands accept `--batch-size`. The override is embedded in the immutable
+manifest so the registered `(32, 128, 512, 2048)` mechanism cells cannot be
+confused with post-hoc reruns.
