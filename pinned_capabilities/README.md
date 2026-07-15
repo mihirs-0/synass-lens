@@ -35,6 +35,7 @@ python -m pinned_capabilities local-stability --help
 python -m pinned_capabilities erasure-boundary --help
 python -m pinned_capabilities acquisition --help
 python -m pinned_capabilities memory-factorial --help
+python -m pinned_capabilities transition-time --help
 python -m unittest discover -s pinned_capabilities/tests -v
 ```
 

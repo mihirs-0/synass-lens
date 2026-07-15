@@ -16,6 +16,7 @@ from .manifest import freeze_manifest
 from .memory_surgery_run import run_memory_factorial
 from .references import empirical_constant_machine, load_reference_bands
 from .reference_run import run_reference_ensemble
+from .reversibility_run import run_transition_timing
 from .state import StateThresholds
 from .state_preparation import prepare_expressed_checkpoint, prepare_suppressed_checkpoint
 from .hysteresis_run import run_hysteresis_cycles
@@ -126,6 +127,18 @@ def main() -> None:
     memory.add_argument("--challenge-steps", type=int, default=10_000)
     memory.add_argument("--output", type=Path, required=True)
     memory.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    timing = subparsers.add_parser(
+        "transition-time", help="time acquisition or recovery under one fixed low-rate rule"
+    )
+    timing.add_argument("--reference", type=Path, required=True)
+    timing.add_argument("--snapshot", type=Path, default=None)
+    timing.add_argument("--arm", type=str, required=True)
+    timing.add_argument("--seed", type=int, required=True)
+    timing.add_argument("--learning-rate", type=float, required=True)
+    timing.add_argument("--max-steps", type=int, default=40_000)
+    timing.add_argument("--reset-optimizer", action="store_true")
+    timing.add_argument("--output", type=Path, required=True)
+    timing.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     args = parser.parse_args()
     config = ProtocolConfig()
     if args.command == "freeze":
@@ -361,6 +374,39 @@ def main() -> None:
             output_dir=args.output,
         )
         print(json.dumps(summary, indent=2, sort_keys=True))
+    elif args.command == "transition-time":
+        bands = load_reference_bands(args.reference)
+        thresholds = StateThresholds(**asdict(config.state))
+        experiment_config = replace(
+            config.experiment, seed=args.seed, device=args.device
+        )
+        frozen = {
+            "kind": "gate1_transition_timing",
+            "protocol_version": config.protocol_version,
+            "experiment": experiment_config,
+            "metric": config.metric,
+            "state": config.state,
+            "reference_path": str(args.reference),
+            "start_snapshot": str(args.snapshot) if args.snapshot else None,
+            "arm": args.arm,
+            "learning_rate": args.learning_rate,
+            "maximum_steps": args.max_steps,
+            "optimizer_reset": args.reset_optimizer,
+        }
+        freeze_manifest(frozen, args.output / "manifest.json", repo=Path.cwd())
+        result = run_transition_timing(
+            experiment_config,
+            config.metric,
+            bands,
+            thresholds,
+            arm=args.arm,
+            learning_rate=args.learning_rate,
+            maximum_steps=args.max_steps,
+            output_dir=args.output,
+            start_snapshot=args.snapshot,
+            optimizer_reset=args.reset_optimizer,
+        )
+        print(json.dumps(asdict(result), indent=2, sort_keys=True))
     elif args.command == "smoke":
         experiment_config = MBCExperimentConfig(
             seed=0,
