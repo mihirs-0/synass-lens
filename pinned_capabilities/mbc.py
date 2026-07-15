@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import List, Sequence, Tuple
 
 import torch
+import torch.nn.functional as F
 
 from src.data import MappingData
 
@@ -108,15 +109,23 @@ def evaluate_mbc_probe(
     c_values = []
     dz_values = []
     correct_by_position = []
+    ce_by_position = []
     for position_index, read_position in enumerate(probe.read_positions):
         position_logits = logits[:, :, read_position, :]
         position_answers = probe.answer_token_ids[:, :, position_index]
         c_values.append(interaction_contrast(position_logits, position_answers, quartets))
         dz_values.append(z_sensitivity(position_logits, position_answers, quartets))
         correct_by_position.append(position_logits.argmax(dim=-1) == position_answers)
+        ce_by_position.append(
+            F.cross_entropy(
+                position_logits.reshape(-1, position_logits.shape[-1]),
+                position_answers.reshape(-1),
+            )
+        )
     full_exact = torch.stack(correct_by_position, dim=2).all(dim=2).float()
     return {
         "c_int": float(torch.stack(c_values).mean().item()),
         "delta_z": float(torch.stack(dz_values).mean().item()),
         "exact_match": float(full_exact.mean().item()),
+        "full_vocab_ce": float(torch.stack(ce_by_position).mean().item()),
     }

@@ -12,6 +12,10 @@ class MetricConfig:
     eval_every: int = 50
     quartets_per_probe: int = 1024
     probe_seeds: Tuple[int, int] = (17_071, 91_237)
+    solved_exact_match: float = 0.99
+    solved_full_vocab_ce: float = 0.05
+    solved_hold_steps: int = 2_000
+    solved_summary_window: int = 1_000
 
     def validate(self) -> None:
         if self.eval_every <= 0:
@@ -20,6 +24,10 @@ class MetricConfig:
             raise ValueError("quartets_per_probe must be positive")
         if len(set(self.probe_seeds)) != 2:
             raise ValueError("the two fixed probe batches need distinct seeds")
+        if not 0 < self.solved_exact_match <= 1 or self.solved_full_vocab_ce <= 0:
+            raise ValueError("invalid solved behavioral endpoint")
+        if self.solved_summary_window <= 0 or self.solved_hold_steps < self.solved_summary_window:
+            raise ValueError("solved summary window must fit inside the solved hold")
 
 
 @dataclass(frozen=True)
@@ -28,6 +36,7 @@ class StateConfig:
     suppressed_duration: int = 2_000
     expressed_fraction: float = 0.5
     expressed_em_sd: float = 5.0
+    expressed_exact_match_floor: float = 0.90
     transition_fraction: float = 0.2
     no_return_duration: int = 1_000
 
@@ -38,6 +47,8 @@ class StateConfig:
             raise ValueError("state durations must be positive")
         if not 0 < self.transition_fraction < self.expressed_fraction <= 1:
             raise ValueError("require 0 < transition_fraction < expressed_fraction <= 1")
+        if not 0 < self.expressed_exact_match_floor <= 1:
+            raise ValueError("expressed exact-match floor must be in (0,1]")
 
 
 @dataclass(frozen=True)
@@ -101,7 +112,7 @@ class MBCExperimentConfig:
 
 @dataclass(frozen=True)
 class ProtocolConfig:
-    protocol_version: str = "1.1.0"
+    protocol_version: str = "1.2.1"
     output_root: str = "pinned_capabilities/results"
     metric: MetricConfig = field(default_factory=MetricConfig)
     state: StateConfig = field(default_factory=StateConfig)

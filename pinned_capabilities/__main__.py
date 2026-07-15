@@ -11,6 +11,7 @@ from .experiment import JSONLWriter, MBCExperiment
 from .gate0 import deep_linear_control
 from .manifest import freeze_manifest
 from .references import empirical_constant_machine
+from .reference_run import run_reference_ensemble
 
 
 def main() -> None:
@@ -31,6 +32,13 @@ def main() -> None:
     smoke.add_argument(
         "--output", type=Path, default=Path("pinned_capabilities/results/smoke")
     )
+    reference_smoke = subparsers.add_parser(
+        "reference-smoke", help="exercise reference generation on a small non-oracle system"
+    )
+    reference_smoke.add_argument(
+        "--output", type=Path, default=Path("pinned_capabilities/results/reference_smoke")
+    )
+    reference_smoke.add_argument("--max-steps", type=int, default=2_000)
     args = parser.parse_args()
     config = ProtocolConfig()
     if args.command == "freeze":
@@ -40,7 +48,7 @@ def main() -> None:
         print(json.dumps(config.to_dict(), indent=2, sort_keys=True))
     elif args.command == "deep-linear":
         print(json.dumps(deep_linear_control(args.learning_rates), indent=2, sort_keys=True))
-    else:
+    elif args.command == "smoke":
         experiment_config = MBCExperimentConfig(
             seed=0,
             n_unique_b=12,
@@ -86,6 +94,49 @@ def main() -> None:
                 sort_keys=True,
             )
         )
+    else:
+        experiment_config = MBCExperimentConfig(
+            seed=0,
+            n_unique_b=24,
+            k=3,
+            b_length=3,
+            a_length=2,
+            z_length=1,
+            n_layers=1,
+            n_heads=1,
+            d_model=32,
+            d_head=32,
+            d_mlp=64,
+            batch_size=24,
+            learning_rate=1e-2,
+            probe_b_count=10,
+            device="cpu",
+        )
+        metric = MetricConfig(
+            eval_every=20,
+            quartets_per_probe=64,
+            solved_hold_steps=100,
+            solved_summary_window=50,
+        )
+        freeze_manifest(
+            {
+                "kind": "reference_smoke_not_gate_evidence",
+                "experiment": experiment_config,
+                "metric": metric,
+                "seeds": (101, 103),
+                "acquisition_budget": args.max_steps,
+            },
+            args.output / "manifest.json",
+            repo=Path.cwd(),
+        )
+        summary = run_reference_ensemble(
+            experiment_config,
+            metric,
+            seeds=(101, 103),
+            acquisition_budget=args.max_steps,
+            output_dir=args.output,
+        )
+        print(json.dumps(summary, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

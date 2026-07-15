@@ -1,7 +1,7 @@
 import math
 import unittest
 
-from pinned_capabilities.references import empirical_constant_machine
+from pinned_capabilities.references import build_reference_bands, empirical_constant_machine
 from src.data import CharTokenizer, generate_mappings
 
 
@@ -24,6 +24,17 @@ class ConstantMachineTests(unittest.TestCase):
         self.assertGreater(result["training_loss"], 0.0)
         self.assertLess(result["training_loss"], math.log(tokenizer.vocab_size))
         self.assertEqual(len(result["position_entropies"]), 3)  # two target positions plus EOS
+        self.assertGreater(result["answer_token_loss"], result["training_loss"])
+
+    def test_reference_aggregation_is_seed_level(self) -> None:
+        bands = build_reference_bands(
+            ({"c_int": -1.0, "exact_match": 0.0}, {"c_int": 1.0, "exact_match": 0.2}),
+            (8.0, 10.0, 12.0),
+            (2.0, 2.2, 2.4),
+        )
+        self.assertEqual(bands.plateau_mean, 0.0)
+        self.assertEqual(bands.solved_c_int, 10.0)
+        self.assertAlmostEqual(bands.q_star_loss_mean, 2.2)
 
 
 if __name__ == "__main__":

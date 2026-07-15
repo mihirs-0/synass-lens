@@ -44,7 +44,7 @@ class MBCIntegrationTests(unittest.TestCase):
         self.assertEqual(left.answer_token_ids.shape, (5, 3, 2))
         quartets = sample_quartets(5, 3, 24, seed=107)
         result = evaluate_mbc_probe(self.model, left, quartets, batch_size=4)
-        self.assertEqual(set(result), {"c_int", "delta_z", "exact_match"})
+        self.assertEqual(set(result), {"c_int", "delta_z", "exact_match", "full_vocab_ce"})
         self.assertTrue(all(torch.isfinite(torch.tensor(value)) for value in result.values()))
         self.assertGreaterEqual(result["exact_match"], 0.0)
         self.assertLessEqual(result["exact_match"], 1.0)

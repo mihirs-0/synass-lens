@@ -62,6 +62,7 @@ class StateTests(unittest.TestCase):
         ]
         self.assertTrue(is_suppressed(rows, self.reference, self.thresholds))
         self.assertTrue(is_expressed(6.0, 0.9, self.reference, self.thresholds))
+        self.assertFalse(is_expressed(6.0, 0.89, self.reference, self.thresholds))
         transition_rows = rows + [
             {"step": step, "c_int": 3.0, "exact_match": 0.5}
             for step in range(2_050, 3_101, 50)

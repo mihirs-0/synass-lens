@@ -13,6 +13,8 @@ class ReferenceBands:
     solved_c_int: float
     chance_em_mean: float
     chance_em_sd: float
+    q_star_loss_mean: float = float("nan")
+    q_star_loss_sd: float = float("nan")
 
 
 @dataclass(frozen=True)
@@ -21,6 +23,7 @@ class StateThresholds:
     suppressed_duration: int = 2_000
     expressed_fraction: float = 0.5
     expressed_em_sd: float = 5.0
+    expressed_exact_match_floor: float = 0.90
     transition_fraction: float = 0.2
     no_return_duration: int = 1_000
 
@@ -38,7 +41,11 @@ def is_expressed(
 ) -> bool:
     return (
         c_int >= thresholds.expressed_fraction * reference.solved_c_int
-        and exact_match >= reference.chance_em_mean + thresholds.expressed_em_sd * reference.chance_em_sd
+        and exact_match
+        >= max(
+            thresholds.expressed_exact_match_floor,
+            reference.chance_em_mean + thresholds.expressed_em_sd * reference.chance_em_sd,
+        )
     )
 
 
@@ -56,6 +63,13 @@ def is_suppressed(
         return False
     low, high = plateau_bounds(reference, thresholds)
     return all(low <= float(row["c_int"]) <= high for row in window)
+
+
+def is_flat_loss(loss: float, reference: ReferenceBands, sd_multiplier: float = 3.0) -> bool:
+    if not (reference.q_star_loss_sd >= 0):
+        return False
+    radius = sd_multiplier * reference.q_star_loss_sd
+    return reference.q_star_loss_mean - radius <= loss <= reference.q_star_loss_mean + radius
 
 
 def first_transition_step(

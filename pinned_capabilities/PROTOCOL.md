@@ -1,6 +1,6 @@
 # Pinned capabilities: bistability, memory, and early warning in neural-network training
 
-**Prospective protocol v1.1.0 — pilot-informed, not a pristine preregistration**
+**Prospective protocol v1.2.1 — pilot-informed, not a pristine preregistration**
 
 This document freezes all new decisions before the new gate suite is run. It
 is informed by existing MBC experiments, including the order-0 `q*` result,
@@ -81,10 +81,20 @@ Ten reference seeds, disjoint from gate seeds, estimate the order-0 `C_int`
 mean and SD, solved `C_int`, chance exact-match mean and SD, and the empirical
 `q*` loss band.
 
+Raw-logit `C_int` is not bounded and therefore has no intrinsic solved scale.
+A reference seed enters the solved ensemble only after both probes reach at
+least 99% full-sequence exact match and at most 0.05 nats of full-vocabulary
+answer-token cross entropy. Training then continues for a fixed 2,000-step
+hold; that seed's solved `C_int` is the median over the final 1,000 steps. A
+seed that does not reach the endpoint within its registered budget is a failed
+reference, not a low solved value. Gates do not start unless all ten reference
+seeds succeed.
+
 - **Suppressed:** `C_int` remains inside order-0 mean plus or minus 3 SD for
   at least 2,000 consecutive steps.
-- **Expressed:** `C_int >= 0.5 * C_int_solved` and exact match exceeds chance
-  by at least 5 SD.
+- **Expressed:** `C_int >= 0.5 * C_int_solved` and exact match exceeds both
+  chance by at least 5 SD and an absolute 90% floor. The absolute floor keeps
+  a zero-success chance ensemble from making the behavioral criterion vacuous.
 - **Transition:** first crossing of `0.2 * C_int_solved` with no return to the
   order-0 band during the next 1,000 steps.
 - **Flat loss:** full-vocabulary loss stays inside the empirical `q*` band.
@@ -303,4 +313,18 @@ transitions without detectable critical slowing.
 
 ## 9. Deviations appendix
 
-Empty at protocol version 1.1.0.
+### 2026-07-15 — version 1.2.0, before gate outcomes
+
+The solved `C_int` ensemble was given an explicit behavioral endpoint and
+fixed hold because a raw-logit contrast otherwise has arbitrary scale. The
+full-vocabulary `q*` comparison is computed over answer tokens (excluding the
+deterministic EOS token) to match the logged behavioral cross entropy. No gate
+outcome had been generated when this clarification was made.
+
+### 2026-07-15 — version 1.2.1, reference-smoke correction
+
+The small reference smoke produced zero full-sequence successes in every
+order-zero model, making empirical chance mean plus five SD equal zero. An
+absolute 90% exact-match floor was added to the expressed-state definition.
+The smoke is infrastructure validation only; no Gate 0 or Gate 1 outcome had
+been run or inspected.
