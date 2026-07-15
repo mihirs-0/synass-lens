@@ -13,6 +13,7 @@ from .gate0 import deep_linear_control
 from .gate0_boundary import geometric_erasure_bisection, run_acquisition_branch
 from .local_measurement import measure_checkpoint_local_stability
 from .manifest import freeze_manifest
+from .memory_surgery_run import run_memory_factorial
 from .references import empirical_constant_machine, load_reference_bands
 from .reference_run import run_reference_ensemble
 from .state import StateThresholds
@@ -102,6 +103,17 @@ def main() -> None:
     acquisition.add_argument("--learning-rate", type=float, required=True)
     acquisition.add_argument("--output", type=Path, required=True)
     acquisition.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    memory = subparsers.add_parser(
+        "memory-factorial", help="run matched-step weights x optimizer-state surgery"
+    )
+    memory.add_argument("--reference", type=Path, required=True)
+    memory.add_argument("--expressed-snapshot", type=Path, required=True)
+    memory.add_argument("--suppressed-snapshot", type=Path, required=True)
+    memory.add_argument("--seed", type=int, required=True)
+    memory.add_argument("--learning-rate", type=float, required=True)
+    memory.add_argument("--challenge-steps", type=int, default=10_000)
+    memory.add_argument("--output", type=Path, required=True)
+    memory.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     args = parser.parse_args()
     config = ProtocolConfig()
     if args.command == "freeze":
@@ -277,6 +289,37 @@ def main() -> None:
             thresholds=thresholds,
         )
         print(json.dumps(asdict(result), indent=2, sort_keys=True))
+    elif args.command == "memory-factorial":
+        bands = load_reference_bands(args.reference)
+        thresholds = StateThresholds(**asdict(config.state))
+        experiment_config = replace(
+            config.experiment, seed=args.seed, device=args.device
+        )
+        frozen = {
+            "kind": "gate1_memory_factorial",
+            "protocol_version": config.protocol_version,
+            "experiment": experiment_config,
+            "metric": config.metric,
+            "state": config.state,
+            "reference_path": str(args.reference),
+            "expressed_snapshot": str(args.expressed_snapshot),
+            "suppressed_snapshot": str(args.suppressed_snapshot),
+            "learning_rate": args.learning_rate,
+            "challenge_steps": args.challenge_steps,
+        }
+        freeze_manifest(frozen, args.output / "manifest.json", repo=Path.cwd())
+        summary = run_memory_factorial(
+            experiment_config,
+            config.metric,
+            bands,
+            thresholds,
+            expressed_snapshot=args.expressed_snapshot,
+            suppressed_snapshot=args.suppressed_snapshot,
+            learning_rate=args.learning_rate,
+            challenge_steps=args.challenge_steps,
+            output_dir=args.output,
+        )
+        print(json.dumps(summary, indent=2, sort_keys=True))
     elif args.command == "smoke":
         experiment_config = MBCExperimentConfig(
             seed=0,
