@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 import torch
@@ -71,8 +72,9 @@ class StateTests(unittest.TestCase):
         tight_reference = ReferenceBands(0.0, 1.0, 10.0, 0.1, 0.02, 2.0, 0.001)
         self.assertTrue(is_flat_loss(2.039, tight_reference))
         self.assertFalse(is_flat_loss(2.05, tight_reference))
-        self.assertTrue(is_expressed(6.0, 0.9, self.reference, self.thresholds))
-        self.assertFalse(is_expressed(6.0, 0.89, self.reference, self.thresholds))
+        self.assertTrue(is_expressed(6.0, 0.9, 1.0, self.reference, self.thresholds))
+        self.assertFalse(is_expressed(6.0, 0.89, 1.0, self.reference, self.thresholds))
+        self.assertFalse(is_expressed(6.0, 0.9, 0.0, self.reference, self.thresholds))
         transition_rows = rows + [
             {"step": step, "c_int": 3.0, "exact_match": 0.5}
             for step in range(2_050, 3_101, 50)
@@ -81,6 +83,18 @@ class StateTests(unittest.TestCase):
 
 
 class ManifestTests(unittest.TestCase):
+    def test_protocol_version_rejects_mutated_gate0_registry(self) -> None:
+        config = ProtocolConfig()
+        for mutated in (
+            replace(config.gate0, seeds=(0, 1)),
+            replace(config.gate0, learning_rates=(0.003, 0.006)),
+            replace(config.gate0, batch_sizes=(32, 512)),
+            replace(config.gate0, state_preparation_step=9_000),
+        ):
+            with self.subTest(mutated=mutated):
+                with self.assertRaisesRegex(ValueError, "frozen"):
+                    replace(config, gate0=mutated).validate()
+
     def test_hash_is_order_invariant_and_manifest_is_immutable(self) -> None:
         self.assertEqual(content_hash({"a": 1, "b": 2}), content_hash({"b": 2, "a": 1}))
         with tempfile.TemporaryDirectory() as directory:

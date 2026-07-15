@@ -37,6 +37,7 @@ class StateConfig:
     expressed_fraction: float = 0.5
     expressed_em_sd: float = 5.0
     expressed_exact_match_floor: float = 0.90
+    expressed_delta_z_floor: float = 0.0
     transition_fraction: float = 0.2
     no_return_duration: int = 1_000
     flat_loss_relative_tolerance: float = 0.02
@@ -50,6 +51,8 @@ class StateConfig:
             raise ValueError("require 0 < transition_fraction < expressed_fraction <= 1")
         if not 0 < self.expressed_exact_match_floor <= 1:
             raise ValueError("expressed exact-match floor must be in (0,1]")
+        if self.expressed_delta_z_floor < 0:
+            raise ValueError("expressed delta-z floor must be nonnegative")
         if not 0 < self.flat_loss_relative_tolerance < 1:
             raise ValueError("flat-loss relative tolerance must be in (0,1)")
 
@@ -57,11 +60,21 @@ class StateConfig:
 @dataclass(frozen=True)
 class Gate0Config:
     seeds: Tuple[int, ...] = (0, 1, 2, 3, 4)
+    calibration_seed: int = 100
+    learning_rates: Tuple[float, ...] = (0.003, 0.006, 0.012, 0.025, 0.05)
+    positive_control_rates: Tuple[float, ...] = (0.5, 0.9, 1.0, 1.1, 1.5)
+    calibration_batch_size: int = 128
+    first_cell_seed: int = 0
+    first_cell_batch_size: int = 128
+    expressed_preparation_learning_rate: float = 0.001
+    state_preparation_step: int = 8_000
     erase_horizon: int = 2_000
     erase_hold_steps: int = 8_000
     acquire_horizon: int = 40_000
     boundary_bisection_steps: int = 12
     batch_sizes: Tuple[int, ...] = (32, 128, 512, 2_048)
+    primary_batch_contrast: Tuple[int, int] = (128, 2_048)
+    secondary_batch_contrast: Tuple[int, int] = (32, 512)
     residual_batch_shift_fraction: float = 0.25
     reduction_match_factor: float = 1.5
     reduction_miss_factor: float = 2.0
@@ -122,7 +135,7 @@ class MBCExperimentConfig:
 
 @dataclass(frozen=True)
 class ProtocolConfig:
-    protocol_version: str = "1.3.4"
+    protocol_version: str = "1.4.1"
     output_root: str = "pinned_capabilities/results"
     metric: MetricConfig = field(default_factory=MetricConfig)
     state: StateConfig = field(default_factory=StateConfig)
@@ -136,8 +149,53 @@ class ProtocolConfig:
         self.experiment.validate()
         if self.gate0.erase_horizon >= self.gate0.acquire_horizon:
             raise ValueError("erase_horizon must be shorter than acquire_horizon")
+        if self.gate0.seeds != (0, 1, 2, 3, 4):
+            raise ValueError("Gate 0 registered seeds are frozen")
+        if self.gate0.calibration_seed != 100:
+            raise ValueError("Gate 0 calibration seed is frozen")
+        if self.gate0.learning_rates != (0.003, 0.006, 0.012, 0.025, 0.05):
+            raise ValueError("Gate 0 learning-rate grid is frozen")
+        if self.gate0.batch_sizes != (32, 128, 512, 2_048):
+            raise ValueError("Gate 0 batch-size ladder is frozen")
+        if (
+            self.gate0.calibration_batch_size,
+            self.gate0.first_cell_seed,
+            self.gate0.first_cell_batch_size,
+            self.gate0.state_preparation_step,
+        ) != (128, 0, 128, 8_000):
+            raise ValueError("Gate 0 calibration, first cell, and state age are frozen")
         if len(set(self.gate0.seeds)) != len(self.gate0.seeds) or not self.gate0.seeds:
             raise ValueError("Gate 0 requires distinct registered seeds")
+        if self.gate0.calibration_seed in self.gate0.seeds:
+            raise ValueError("Gate 0 calibration seed must be disjoint from gate seeds")
+        if (
+            not self.gate0.learning_rates
+            or len(set(self.gate0.learning_rates)) != len(self.gate0.learning_rates)
+            or any(rate <= 0 for rate in self.gate0.learning_rates)
+            or tuple(sorted(self.gate0.learning_rates)) != self.gate0.learning_rates
+        ):
+            raise ValueError("Gate 0 learning-rate grid must be positive, unique, and sorted")
+        if self.gate0.positive_control_rates != (0.5, 0.9, 1.0, 1.1, 1.5):
+            raise ValueError("Gate 0 positive-control grid is frozen")
+        if self.gate0.calibration_batch_size not in self.gate0.batch_sizes:
+            raise ValueError("Gate 0 calibration batch size must be registered")
+        if self.gate0.first_cell_seed not in self.gate0.seeds:
+            raise ValueError("Gate 0 first-cell seed must be registered")
+        if self.gate0.first_cell_batch_size not in self.gate0.batch_sizes:
+            raise ValueError("Gate 0 first-cell batch size must be registered")
+        if self.gate0.expressed_preparation_learning_rate <= 0:
+            raise ValueError("Gate 0 expressed-preparation rate must be positive")
+        if self.gate0.state_preparation_step < self.metric.solved_hold_steps:
+            raise ValueError("Gate 0 state-preparation step must accommodate solved hold")
+        for contrast in (
+            self.gate0.primary_batch_contrast,
+            self.gate0.secondary_batch_contrast,
+        ):
+            low, high = contrast
+            if low not in self.gate0.batch_sizes or high not in self.gate0.batch_sizes:
+                raise ValueError("Gate 0 batch contrasts must use registered batch sizes")
+            if high != 16 * low:
+                raise ValueError("Gate 0 batch contrasts must be exactly 16x")
         if self.gate0.erase_horizon >= self.gate0.erase_hold_steps:
             raise ValueError("erasure entry horizon must be shorter than the complete hold")
         if min(

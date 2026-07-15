@@ -36,6 +36,30 @@ fixed solved endpoint at step 4,400 and completed its 2,000-step hold at step
 6,400. Its solved interaction summary was 16.639. This bounded a ten-seed CPU
 reference ensemble at roughly 60–90 minutes and justified launching it.
 
+## 2026-07-15 — frozen ten-seed behavioral ruler
+
+Reference seeds 110–119 all reached the dual-probe endpoint and completed the
+registered 2,000-step post-solution hold. Endpoint steps ranged from 3,300 to
+4,700 and final steps from 5,300 to 6,700. An independent artifact audit
+reconstructed every endpoint from the raw 50-step logs, reproduced every
+final-window median, checked snapshot metadata, and exactly regenerated the
+aggregate bands:
+
+| quantity | frozen value |
+|---|---:|
+| order-zero `C_int` mean | -0.0009412 |
+| order-zero `C_int` SD | 0.0064312 |
+| solved `C_int` median | 16.6531944 |
+| chance exact-match mean | 0.0 |
+| chance exact-match SD | 0.0 |
+| empirical `q*` loss mean | 3.5818329 |
+| empirical `q*` loss SD | 0.0002120 |
+
+The absolute 90% expressed-state floor is therefore active. The flat-loss
+radius is set by its 2% relative floor (0.0716367 nats), rather than by three
+reference SDs (0.0006361 nats). No gate seed or gate outcome entered these
+quantities.
+
 ## 2026-07-15 — augmented-map numerical calibration
 
 An unbalanced Arnoldi solve on the tiny system returned an apparent multiplier
@@ -58,3 +82,52 @@ longer trajectory is stable, and the estimate is not strictly monotone over
 this coarse grid. No unit-multiplier crossing is inferred from calibration.
 Gate 0 must compare registered empirical boundaries against the complete local
 predictor rather than assuming that `rho(J)=1` is fate-equivalent.
+
+## 2026-07-15 — Gate 0 candidate-grid and input freeze
+
+Before opening the seed-100 fate scan, protocol v1.4.0 froze the candidate
+rates `(0.003, 0.006, 0.012, 0.025, 0.05)`, batch size 128, and a hard
+calibration rule: the grid must contain a strict nondivergent
+retained-to-erased pair or the program stops before seed 0.
+The execution uses two spawned workers; worker count is deliberately excluded
+from the scientific manifest because every process owns a disjoint,
+deterministic rate cell.
+
+The consuming manifests bind the ten-seed reference ensemble SHA-256
+`8ab7fd81cbe0ec039152ee9414fb18435a17938297fbd0a983875f6a6400da0d` and its
+source-manifest configuration hash
+`c30b2ebb1ca78f705a3e4c28e7af0089f6b41864fdec195d5c2cb9f26860fcaf`. The
+seed-100 solved snapshot is bound as
+`5f1756fdc8a836d18cfdb7f75474771df07e2478dd05b5ea2e9edc205305702f` at step
+6,400 with matched seed metadata; its source manifest is bound as
+`783a89147ee8cf3ff0fabdb1d6dbdb0f6a62985ea2c385a4b942db3c47653837`. That
+calibration snapshot predates
+embedded experiment-config metadata, so its config check is explicitly
+unavailable. Its source manifest and raw training record confirm the same
+production architecture, batch size 128, learning rate 0.001, and exact
+training implementation. This exception is calibration-only: all new official
+starting snapshots embed and validate their complete experiment config.
+
+The closed-form depth-2 scalar positive control was rerun under v1.4.0. Its
+nontrivial multiplier was stable at rates 0.5 and 0.9, exactly `-1` at the
+analytic critical rate 1.0, and unstable at 1.1 and 1.5. The unit-circle
+classifier therefore recovered the analytic boundary with no numerical
+misclassification.
+
+## 2026-07-15 — v1.4.1 pre-outcome adversarial audit
+
+Before the seed-100 boundary scan, an independent read-only audit successfully
+forged the v1.4.0 calibration, first-cell `collect`, and Gate 0 `continue`
+artifacts, and showed that an empty local aggregate could satisfy the CLI
+prerequisite. A second audit showed that edited aggregate rows and resumed
+metrics histories were not revalidated at the verdict boundary. No calibration
+or gate fate had been run, so these were protocol defects rather than outcome-
+conditioned changes.
+
+Version 1.4.1 now re-derives every authorization from bound raw inputs, matches
+scan aggregates to sealed child cells, recomputes local certification, binds
+transactional checkpoints to exact metrics prefixes, and derives terminal
+registry completion. The v1.4.0 scalar-only positive-control artifact is no
+longer eligible. Its v1.4.1 replacement must additionally pass the production
+augmented-Adam HVP Jacobian versus centered-finite-difference check and the
+eigenpair residual check before seed 100 is opened.

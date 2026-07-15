@@ -82,7 +82,13 @@ def classify_latest_state(
     if not rows:
         return "unresolved"
     latest = rows[-1]
-    if is_expressed(float(latest["c_int"]), float(latest["exact_match"]), reference, thresholds):
+    if is_expressed(
+        float(latest["c_int"]),
+        float(latest["exact_match"]),
+        float(latest["delta_z"]),
+        reference,
+        thresholds,
+    ):
         return "expressed"
     if is_jointly_suppressed(rows, reference, thresholds):
         return "suppressed"

@@ -164,7 +164,11 @@ def run_transition_timing(
             }
         )
         expressed_now = is_expressed(
-            latest["c_int"], latest["exact_match"], reference, thresholds
+            latest["c_int"],
+            latest["exact_match"],
+            latest["delta_z"],
+            reference,
+            thresholds,
         )
         if expressed_now and expressed_step is None:
             expressed_step = branch_step

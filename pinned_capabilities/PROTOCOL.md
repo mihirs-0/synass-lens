@@ -1,6 +1,6 @@
 # Pinned capabilities: bistability, memory, and early warning in neural-network training
 
-**Prospective protocol v1.3.4 — pilot-informed, not a pristine preregistration**
+**Prospective protocol v1.4.1 — pilot-informed, not a pristine preregistration**
 
 This document freezes all new decisions before the new gate suite is run. It
 is informed by existing MBC experiments, including the order-0 `q*` result,
@@ -68,8 +68,11 @@ score functions.
 Secondary metrics are candidate-normalized `delta_z`, full-sequence held-out
 exact match, full-vocabulary cross entropy, candidate-restricted cross
 entropy, and a redundant-direction control. A branch counts as capability
-expression only when `C_int`, exact match, and `delta_z` agree. Improvement in
-`delta_z` without `C_int` is labeled shortcut acquisition.
+expression only when `C_int`, exact match, and `delta_z` agree. Agreement is
+frozen as `delta_z > 0`: `C_int` and exact match carry the magnitude criteria,
+while the sign check rejects a perverse interaction that favors the wrong
+condition. Improvement in `delta_z` without `C_int` is labeled shortcut
+acquisition.
 
 Two fixed, disjoint counterfactual probe batches are logged every 50 steps.
 Correlated movement across batches estimates state fluctuation; uncorrelated
@@ -136,6 +139,34 @@ Gate 0 uses seeds 0--4, disjoint from reference seeds 110--119. The learning-
 rate grid is calibrated only on the non-gate seed 100, then frozen before any
 seed 0--4 boundary is opened. Batch comparisons are paired within seed.
 
+The calibration candidate grid is `(0.003, 0.006, 0.012, 0.025, 0.05)` at
+batch size 128. From the completed seed-100 solved checkpoint, the suite runs
+both the complete 8,000-step erasure scan and the certified local-stability
+scan at all five rates. Calibration succeeds only if the empirical scan has a
+strict adjacent retained-to-erased pair, all five predictor cells are
+certified, and neither endpoint is divergent or unresolved. The
+smallest eligible retained-to-erased pair is the calibration bracket. The
+five-rate candidate grid then becomes the frozen gate grid without alteration.
+If calibration fails, the program stops before any gate seed is opened; no
+adaptive grid search is allowed.
+
+Calibration is closed by an executable adjudication artifact, not a notebook
+judgment. It binds the positive-control result, both seed-100 scans, their
+manifests, and the calibration snapshot. Official seed 0--4 commands reject a
+missing, stopped, stale, or control-mismatched artifact.
+
+The first registered cell is seed 0 at batch size 128. Every expressed Gate 0
+start is trained at learning rate 0.001 and saved at the common step 8,000 only
+after expression holds throughout the final 2,000 steps. Its complete local
+scan is written before its empirical fate scan starts. Acquisition starts from
+a separate, jointly suppressed step-8,000 checkpoint trained at the smallest
+erasing calibration rate. Failure to construct either starting state without
+divergence stops the suite rather than changing its age or learning rate.
+The matching complete and certified local scan is a required manifest input to
+every empirical fate scan, enforcing prediction before outcome. If the first
+cell does not provide immediate non-reduction evidence, its partial analysis
+must return `collect` before any other gate cell or acquisition start can run.
+
 ### 4.3 Local stability calculation
 
 `H` is the Hessian of the **training loss**, never the Hessian of `C_int`.
@@ -154,8 +185,13 @@ The suite reports this approximation, the largest eigenvalue of
 using exact Hessian-vector products and is checked against centered finite
 differences on a tractable system. Its spectral radius is the primary local
 predictor because momentum and second-moment feedback change Adam's stability
-constant. The deep-linear positive control calibrates the numerical pipeline;
-it does not pretend that conditional binding is a linear task.
+constant. The positive-control artifact has two independent parts: the
+depth-two scalar-GD system must recover its closed-form unit-circle boundary,
+and the production augmented-Adam HVP operator on a tractable two-parameter
+quadratic must agree with a centered finite-difference Jacobian while its
+reported eigenpairs satisfy the residual tolerance. This calibrates both the
+decision convention and the numerical pipeline; it does not pretend that
+conditional binding is a linear task.
 
 The capability direction uses a fixed differentiable assay with 32 `B` values
 and 256 registered quartets, averaged over answer positions. This assay is
@@ -169,6 +205,27 @@ transform that RMS-balances weight, first-moment, and second-moment blocks.
 Every reported eigenpair includes a scale-normalized residual and is eligible
 for Gate 0 only when that residual is at most 1%.
 
+The local prediction itself is the ordinary discrete-map criterion, not a fit
+to gate outcomes: `rho(J) < 1` predicts persistence of the starting state and
+`rho(J) > 1` predicts departure. Adjacent certified rates that change side of
+the unit circle define the predicted boundary interval. No crossing, when
+every rate lies on the same side of the unit circle, produces the corresponding
+one-sided censored interval. Because that interval has no geometric center, it
+is diagnostic only: it can neither establish reduction nor open Gate 1.
+Multiple reversals, a change in the wrong
+direction, an exactly unit multiplier, or an uncertified cell do not get
+repaired after seeing fate; they make the local predictor fail that registered
+cell. The deep-linear control must recover its analytic unit-circle boundary
+before any neural prediction is eligible.
+
+The official finite-grid boundary estimate is the geometric center of its
+strict adjacent interval. Reduction and non-reduction factors compare those
+centers; interval endpoints and widths remain reported resolution diagnostics.
+This convention is applied identically to empirical and predicted scans and is
+validated on the positive control. The 12-step bisection command is a secondary
+post-gate refinement only. It cannot enter the registered verdict, replace a
+coarse cell, or rescue an invalid scan.
+
 ### 4.4 Batch-size test
 
 A raw boundary shift with batch size is insufficient because batch size also
@@ -179,20 +236,50 @@ on the measured augmented multiplier and curvature. Batch sizes span at least
 batch size. Confidence intervals resample the five seed clusters, never
 individual branches.
 
+The primary exact-16x contrast is 128 to 2,048 and the secondary contrast is
+32 to 512. Both are required in both directions for a reduction verdict. The
+conditioned response is the paired within-seed difference of
+`log(empirical boundary) - log(predicted boundary)`; its 95% interval exactly
+enumerates the `5^5` seed-cluster bootstrap resamples.
+
 ### 4.5 Decision
 
-Continue if either condition holds:
+Continue to Gate 1 if either condition holds:
 
-1. The observed erasure boundary differs from the positive-control-calibrated
-   augmented stability prediction by more than 2x in at least one registered
-   configuration; or
+1. Either observed directional boundary differs from the
+   positive-control-calibrated augmented stability prediction by more than 2x
+   in at least one registered configuration; or
 2. a 16x batch change moves the boundary by more than 25% after conditioning
    on the measured local predictor, with the paired confidence interval
    excluding zero.
 
-Kill if both directional boundaries track the calibrated augmented predictor
-within 1.5x across every configuration and the residual batch effect is below
-25%. Exit product: a short capability-resolved optimizer-stability note.
+Kill as reduction if both directional boundaries track the calibrated
+augmented predictor within 1.5x across every seed and configuration and both
+registered batch-effect intervals lie wholly inside the symmetric 1.25x
+multiplicative-equivalence region. Exit product: a short capability-resolved
+optimizer-stability note.
+
+This is also a total investment rule. During staged collection, a certified
+non-reduction result opens Gate 1 immediately; otherwise the action is to
+collect the remaining registered Gate 0 cells. Once the fixed registry is
+complete, the 1.5x--2x evidence band, a missing or censored boundary, an
+uncertified predictor, incomplete seed coverage, or an invalid exact-16x
+comparison stops the suite without opening Gate 1. Such a stop is reported as
+a failed Gate 0 design, not as evidence for reduction or non-reduction. The
+intermediate `collect` action is never a final outcome: the finite registry
+must end in `continue` or `stop`.
+Every Gate 1 runner requires the content-bound Gate 0 report with action
+`continue`; a `collect`, `stop`, or missing report cannot open the next gate.
+
+The verdict command accepts only paths to the raw empirical and local scan
+aggregates. It re-derives both boundary intervals under the rules above,
+computes bounded-cell residuals from geometric interval centers, and writes
+the evidence decision plus action. It validates each aggregate against its
+sealed child cells, rechecks local eigenpair count/residual/radius consistency,
+and replays the content-bound calibration, local-before-fate, and first-cell
+authorization chain. Registry completion is inferred from the exact frozen
+cell set; no `finalize` flag can prolong or prematurely close the gate.
+Hand-entered boundary values or gate reports are not eligible.
 
 ## 5. Gate 1 — hysteresis and memory
 
@@ -330,6 +417,8 @@ transitions without detectable critical slowing.
 ## 8. Outcome tree
 
 - Gate 0 kills: capability-resolved local stability note; stop.
+- Gate 0 is incomplete or ambiguous: stop without a mechanism claim; do not
+  spend Gate 1 compute.
 - Gate 1 passes alone: a paper only if the full memory-location surgery and
   deterministic/noise mechanism classification are clean; hysteresis alone is
   prior art after Ersoy and Wiesner (2026).
@@ -429,3 +518,42 @@ only on seed 100. Batch comparisons are paired within seed and intervals
 resample whole seed clusters. No Gate 0 outcome had been run or inspected.
 Reference measurements are unchanged, so the running v1.2.4 ensemble remains
 eligible.
+
+### 2026-07-15 — version 1.4.0, decision-complete Gate 0 freeze
+
+A pre-outcome audit found that the prior Gate 0 prose did not freeze the rate
+grid, first cell, state age, acquisition start, exact 16x contrast, or the
+action taken in the 1.5x--2x evidence band. It also promised `delta_z`
+agreement without enforcing it and bound inputs only by mutable paths. Version
+1.4.0 freezes the five-rate seed-100 calibration, seed-0/batch-128 first cell,
+step-8,000 starting states, exact contrasts, unit-circle predictor, sign-only
+`delta_z` agreement, deterministic cluster bootstrap, and the total
+continue-or-stop investment rule. It also makes the positive control and
+seed-100 adjudication executable prerequisites, enforces local-before-fate and
+first-cell ordering, and uses geometric centers for the symmetric frozen-grid
+comparison while reserving bisection for post-gate refinement. Every reference
+and snapshot input is now
+content-hashed in its consuming manifest, with snapshot seed/config metadata
+validated when available. The complete ten-seed reference ruler had finished,
+but no seed-100 boundary calibration or seed 0--4 gate fate had been run or
+inspected. These changes therefore alter no gate outcome.
+
+### 2026-07-15 — version 1.4.1, artifact-chain and terminal-rule hardening
+
+A second pre-outcome adversarial audit showed that the v1.4.0 CLI could trust
+handwritten calibration, first-cell, or continuation JSON; verdict analysis
+did not revalidate sealed child cells; resume histories were not content-bound;
+and terminal completion depended on an optional `finalize` flag. Version 1.4.1
+closes those routes. Calibration and Gate 0 authorizations are freshly
+re-derived from their manifests and raw inputs at every use. Scan aggregates
+must match self-sealed child results whose controls and source hashes match the
+manifest; local certification is recomputed from eigenpair fields. Empirical
+and state-preparation progress now binds the exact metrics prefix and
+checkpoint bytes. Official snapshots require matched seed and experiment
+metadata, except for the recorded seed-100 legacy calibration snapshot.
+Censored boundaries cannot open Gate 1, registry completion is derived, and
+single-rate exploratory commands cannot inspect official fate before the
+registered order. The positive control now also exercises the production
+augmented-Adam HVP/eigensolver against centered finite differences. No seed-100
+boundary scan or seed 0--4 gate fate had been run or inspected, so the audit
+changed no scientific outcome.

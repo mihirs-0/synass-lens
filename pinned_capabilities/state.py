@@ -24,6 +24,7 @@ class StateThresholds:
     expressed_fraction: float = 0.5
     expressed_em_sd: float = 5.0
     expressed_exact_match_floor: float = 0.90
+    expressed_delta_z_floor: float = 0.0
     transition_fraction: float = 0.2
     no_return_duration: int = 1_000
     flat_loss_relative_tolerance: float = 0.02
@@ -37,6 +38,7 @@ def plateau_bounds(reference: ReferenceBands, thresholds: StateThresholds) -> tu
 def is_expressed(
     c_int: float,
     exact_match: float,
+    delta_z: float,
     reference: ReferenceBands,
     thresholds: StateThresholds,
 ) -> bool:
@@ -47,6 +49,7 @@ def is_expressed(
             thresholds.expressed_exact_match_floor,
             reference.chance_em_mean + thresholds.expressed_em_sd * reference.chance_em_sd,
         )
+        and delta_z > thresholds.expressed_delta_z_floor
     )
 
 

@@ -209,7 +209,9 @@ def _run_arm(
                 },
             )
     latest = rows[-1]
-    if is_expressed(latest["c_int"], latest["exact_match"], reference, thresholds):
+    if is_expressed(
+        latest["c_int"], latest["exact_match"], latest["delta_z"], reference, thresholds
+    ):
         outcome = "expressed"
     elif is_jointly_suppressed(rows, reference, thresholds):
         outcome = "suppressed"
