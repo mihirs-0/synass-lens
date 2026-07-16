@@ -26,6 +26,7 @@ from .gate0_analysis import (
     gate0_payload_source_paths,
     validate_scan_artifact,
 )
+from .gate0_autopsy import run_autopsy
 from .gate0_boundary import (
     geometric_erasure_bisection,
     run_acquisition_branch,
@@ -490,6 +491,13 @@ def main() -> None:
     )
     gate0_analyze.add_argument("--evidence", type=Path, required=True)
     gate0_analyze.add_argument("--output", type=Path, required=True)
+    gate0_autopsy = subparsers.add_parser(
+        "gate0-autopsy",
+        help="apply the frozen amendment v1.5 classifier to the sealed cells",
+    )
+    gate0_autopsy.add_argument("--scan-dir", type=Path, required=True)
+    gate0_autopsy.add_argument("--reference", type=Path, required=True)
+    gate0_autopsy.add_argument("--output", type=Path, required=True)
     memory = subparsers.add_parser(
         "memory-factorial", help="run matched-step weights x optimizer-state surgery"
     )
@@ -1012,6 +1020,17 @@ def main() -> None:
         temporary.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
         temporary.replace(result_path)
         print(json.dumps(report, indent=2, sort_keys=True))
+    elif args.command == "gate0-autopsy":
+        report = run_autopsy(args.scan_dir, args.reference, args.output)
+        summary = {
+            "labels": report["activation"]["labels"],
+            "activation": {
+                key: report["activation"][key]
+                for key in ("primary_branch", "include_branch_c", "grid_cap", "t_hold_steps")
+            },
+            "output": str(args.output),
+        }
+        print(json.dumps(summary, indent=2, sort_keys=True))
     elif args.command == "memory-factorial":
         bands = load_reference_bands(args.reference)
         thresholds = StateThresholds(**asdict(config.state))
