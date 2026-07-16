@@ -45,12 +45,16 @@ from .gate0e_stats import (
 
 @dataclass(frozen=True)
 class ControlConfig:
+    """Calibrated so the Arrhenius fit cells sit at high-but-partial escape
+    fractions, where the registered conditional-median estimator is nearly
+    unbiased; the pass rule itself is frozen by the amendment."""
+
     target: float = 1.0
     weight_decay: float = 0.3
     noise_sd: float = 1.0
-    horizon_steps: int = 50_000
-    streams: int = 32
-    learning_rates: Tuple[float, ...] = (0.006, 0.007, 0.008, 0.009, 0.0105, 0.012)
+    horizon_steps: int = 250_000
+    streams: int = 192
+    learning_rates: Tuple[float, ...] = (0.0055, 0.006, 0.0065, 0.007, 0.0077, 0.0085, 0.0095)
     divergence_bound: float = 100.0
     seed: int = 20_260_715
 

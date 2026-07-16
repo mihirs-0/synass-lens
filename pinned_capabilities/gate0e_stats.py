@@ -143,7 +143,7 @@ def logistic_fit(
             theta[0] = _profile_intercept(x, k, n, theta[1])
             current = log_likelihood(theta)
             break
-    separation = abs(theta[1]) >= SLOPE_CAP
+    separation = bool(abs(theta[1]) >= SLOPE_CAP)
     eta50 = None
     if theta[1] > 0:
         eta50 = float(math.exp(-theta[0] / theta[1]))

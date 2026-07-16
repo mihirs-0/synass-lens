@@ -164,3 +164,28 @@ The resulting executable precheck artifact SHA-256 is
 its manifest SHA-256 is
 `67b666e89dc90d8921ca6af308b802d5d4391ec6e4f1eeced0c0c6554f8121b0`
 and records source commit `b186ef0`.
+
+## 2026-07-15 — Gate 0-E runner smoke (amendment v1.5)
+
+On a 1-layer width-32 system, two escape streams from one snapshot at the
+same rate produced different trajectories under fresh data-order seeds; a
+from-scratch rerun of one stream was bit-identical to its original metrics
+log; and a stream killed at branch step 10,000 of 12,000 resumed to a
+continuous complete log. Infrastructure validation only.
+
+## 2026-07-15 — Gate 0-E positive-control calibration
+
+The first control regime (32 streams, 50,000-step horizon, rates 0.006 to
+0.012) produced a monotone escape curve but Arrhenius R^2 of 0.60: with a
+short horizon most fit cells sat at low escape fractions where the
+registered conditional-median estimator is strongly censoring-biased. The
+regime was recalibrated to 192 streams and a 250,000-step horizon with rates
+0.0055 to 0.0095, placing fit cells at high-but-partial fractions. A first
+pass (without 0.0055) gave 3 fit points and R^2 0.9998; the registered
+default adds 0.0055 for 4 fit points. Final artifact: monotone curve
+(fractions 0.64 to 1.0), Arrhenius R^2 0.968, observed slope 1.07x the
+semi-analytic Kramers slope. `passed: true`. Control artifact SHA-256
+`5c5bb6e55aebb3f19302ae667010aa8a3a75ebd119a99da9d82d75a1d4cf2749`. The
+pass rule (monotone plus R^2 >= 0.9) was never altered; only the simulated
+regime moved. A numpy-bool serialization defect in the logistic separation
+flag was fixed before any neural curve ran.
