@@ -8,6 +8,7 @@ from pinned_capabilities.experiment import MBCExperiment
 from pinned_capabilities.gate0e_null import (
     batch_discriminator,
     crossing_rate,
+    decision_block_diffusion,
     diffusion_slope,
     radius_at,
     radius_table,
@@ -89,18 +90,18 @@ class RadiusTableTests(unittest.TestCase):
         self.assertTrue(result["predicted_eta50"] < 0.01)
 
 
-def sgd_like_powers():
-    return {
-        "0:32": 4.0, "0:128": 1.0, "0:512": 0.25,
-        "1:32": 4.0, "1:128": 1.0, "1:512": 0.25,
-    }
+def cell(ln_d, se=0.02):
+    return {"ln_d": ln_d, "jackknife_se": se}
 
 
-def flat_powers():
-    return {
-        "0:32": 1.0, "0:128": 1.05, "0:512": 0.98,
-        "1:32": 1.02, "1:128": 1.0, "1:512": 1.01,
-    }
+def diffusion_cells(slope, se=0.02):
+    cells = {}
+    for seed in (0, 1):
+        for batch in (32, 128, 512):
+            cells[f"{seed}:{batch}"] = cell(
+                slope * (math.log(batch) - math.log(128)), se
+            )
+    return cells
 
 
 def down_predictions():
@@ -111,38 +112,85 @@ def down_predictions():
     }
 
 
+def one_d_decision_block(values, length=64):
+    count = len(values)
+    mean = sum(values) / count
+    return {
+        "length": length,
+        "count": count,
+        "block_powers": [value * value for value in values],
+        "block_mean_dots": [mean * value for value in values],
+        "mean_power": mean * mean,
+    }
+
+
+class DecisionBlockTests(unittest.TestCase):
+    def test_point_and_jackknife_from_scalars(self) -> None:
+        values = [1.0, 2.0] * 4
+        estimate = decision_block_diffusion(one_d_decision_block(values))
+        self.assertIsNotNone(estimate)
+        self.assertAlmostEqual(estimate["ln_d"], math.log(0.25 / 64), places=10)
+        self.assertGreater(estimate["jackknife_se"], 0.0)
+        self.assertEqual(estimate["blocks"], 8)
+
+    def test_too_few_blocks_returns_none(self) -> None:
+        self.assertIsNone(decision_block_diffusion(one_d_decision_block([1.0, 2.0])))
+        self.assertIsNone(decision_block_diffusion(None))
+
+    def test_degenerate_variance_returns_none(self) -> None:
+        self.assertIsNone(decision_block_diffusion(one_d_decision_block([1.0] * 8)))
+
+
 class DiscriminatorTests(unittest.TestCase):
     def test_diffusion_slope_recovers_exponent(self) -> None:
         slope = diffusion_slope({32: 4.0, 128: 1.0, 512: 0.25})
         self.assertAlmostEqual(slope, -1.0, places=10)
 
     def test_sgd_like_diffusion_opposing_null_is_decisive(self) -> None:
-        block = batch_discriminator(down_predictions(), sgd_like_powers())
+        block = batch_discriminator(down_predictions(), diffusion_cells(-1.0))
         self.assertEqual(block["noise_predicted_direction"], "up")
         self.assertEqual(block["v_conditioned_direction"], "down")
         self.assertEqual(block["status"], "decisive")
+        low, high = block["slope_interval_95"]
+        self.assertLess(high, -0.15)
+
+    def test_wide_uncertainty_destroys_decisiveness(self) -> None:
+        block = batch_discriminator(down_predictions(), diffusion_cells(-1.0, se=2.0))
+        self.assertEqual(block["noise_predicted_direction"], "flat_or_uncertain")
+        self.assertEqual(block["status"], "non_discriminating")
 
     def test_flat_diffusion_is_non_discriminating(self) -> None:
-        block = batch_discriminator(down_predictions(), flat_powers())
-        self.assertEqual(block["noise_predicted_direction"], "flat")
+        block = batch_discriminator(down_predictions(), diffusion_cells(0.0))
+        self.assertEqual(block["noise_predicted_direction"], "flat_or_uncertain")
         self.assertEqual(block["status"], "non_discriminating")
 
     def test_agreeing_directions_are_non_discriminating(self) -> None:
-        rising = {key: 1.0 / value for key, value in sgd_like_powers().items()}
-        block = batch_discriminator(down_predictions(), rising)
+        block = batch_discriminator(down_predictions(), diffusion_cells(1.0))
         self.assertEqual(block["noise_predicted_direction"], "down")
         self.assertEqual(block["status"], "non_discriminating")
 
     def test_censored_prediction_is_non_discriminating(self) -> None:
         predictions = down_predictions()
         predictions["1:512"] = None
-        block = batch_discriminator(predictions, sgd_like_powers())
+        block = batch_discriminator(predictions, diffusion_cells(-1.0))
         self.assertIsNone(block["v_conditioned_direction"])
         self.assertEqual(block["status"], "non_discriminating")
 
-    def test_missing_diffusion_is_non_discriminating(self) -> None:
-        block = batch_discriminator(down_predictions(), {"0:128": 1.0})
-        self.assertIsNone(block["pooled_dlnD_dlnB"])
+    def test_small_predicted_shift_fails_magnitude_floor(self) -> None:
+        predictions = {
+            "0:128": 0.012, "1:128": 0.012,
+            "0:32": 0.0125, "1:32": 0.0125,
+            "0:512": 0.0115, "1:512": 0.0115,
+        }
+        block = batch_discriminator(predictions, diffusion_cells(-1.0))
+        self.assertIsNone(block["v_conditioned_direction"])
+        self.assertEqual(block["status"], "non_discriminating")
+
+    def test_missing_diffusion_cell_is_non_discriminating(self) -> None:
+        cells = diffusion_cells(-1.0)
+        cells["1:512"] = None
+        block = batch_discriminator(down_predictions(), cells)
+        self.assertFalse(block["cells_complete"])
         self.assertEqual(block["status"], "non_discriminating")
 
 
@@ -191,7 +239,15 @@ class RefreshTests(unittest.TestCase):
             self.assertGreaterEqual(
                 diffusion["mean_step_power"], diffusion["drift_power"]
             )
-            self.assertGreaterEqual(diffusion["diffusion_power"], 0.0)
+            self.assertGreaterEqual(diffusion["update_variance_power"], 0.0)
+            self.assertAlmostEqual(
+                diffusion["block_diffusion"]["1"],
+                diffusion["update_variance_power"],
+                places=10,
+            )
+            self.assertIsNotNone(diffusion["block_diffusion"]["4"])
+            self.assertIsNone(diffusion["block_diffusion"]["64"])
+            self.assertIsNone(diffusion["decision_block"])
             self.assertTrue((workspace / "refresh/refreshed_snapshot.pt").exists())
             again = refresh_moments(
                 config, metric, base, workspace / "refresh", refresh_steps=20

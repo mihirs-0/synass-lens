@@ -1252,6 +1252,16 @@ def main() -> None:
                         seed: entry["prediction"]
                         for seed, entry in sealed["predictions"].items()
                     },
+                    "batch_discriminator": {
+                        key: sealed["batch_discriminator"][key]
+                        for key in (
+                            "status",
+                            "noise_predicted_direction",
+                            "v_conditioned_direction",
+                            "pooled_dlnD_dlnB",
+                            "slope_interval_95",
+                        )
+                    },
                     "result_sha256": sealed["result_sha256"],
                 },
                 indent=2,

@@ -104,6 +104,11 @@ def refresh_moments(
     previous = theta_before.clone()
     step_sum = torch.zeros_like(previous)
     squared_power = 0.0
+    block_partial = {length: torch.zeros_like(previous) for length in BLOCK_LENGTHS}
+    block_fill = {length: 0 for length in BLOCK_LENGTHS}
+    block_powers = {length: [] for length in BLOCK_LENGTHS}
+    block_sums = {length: torch.zeros_like(previous) for length in BLOCK_LENGTHS}
+    decision_vectors: List[torch.Tensor] = []
     first = last = None
     for step_index in range(refresh_steps):
         last = experiment.advance(1)
@@ -113,6 +118,16 @@ def refresh_moments(
         step = current - previous
         step_sum += step
         squared_power += float(step.pow(2).sum())
+        for length in BLOCK_LENGTHS:
+            block_partial[length] += step
+            block_fill[length] += 1
+            if block_fill[length] == length:
+                block_powers[length].append(float(block_partial[length].pow(2).sum()))
+                block_sums[length] += block_partial[length]
+                if length == DECISION_BLOCK_LENGTH:
+                    decision_vectors.append(block_partial[length].clone())
+                block_partial[length].zero_()
+                block_fill[length] = 0
         previous = current
     theta_after = previous
     drift = float(
@@ -121,13 +136,40 @@ def refresh_moments(
     )
     mean_step_power = squared_power / refresh_steps
     drift_power = float((step_sum / refresh_steps).pow(2).sum())
+    block_diffusion: Dict[str, Optional[float]] = {}
+    for length in BLOCK_LENGTHS:
+        count = len(block_powers[length])
+        if count < 2:
+            block_diffusion[str(length)] = None
+            continue
+        mean_power = sum(block_powers[length]) / count
+        mean_vector = block_sums[length] / count
+        block_diffusion[str(length)] = max(
+            mean_power - float(mean_vector.pow(2).sum()), 0.0
+        ) / length
+    decision_block = None
+    if len(decision_vectors) >= 2:
+        count = len(decision_vectors)
+        mean_vector = block_sums[DECISION_BLOCK_LENGTH] / count
+        decision_block = {
+            "length": DECISION_BLOCK_LENGTH,
+            "count": count,
+            "block_powers": block_powers[DECISION_BLOCK_LENGTH],
+            "block_mean_dots": [
+                float(torch.dot(mean_vector, vector)) for vector in decision_vectors
+            ],
+            "mean_power": float(mean_vector.pow(2).sum()),
+        }
     update_diffusion = {
         "steps": refresh_steps,
         "refresh_rate": refresh_rate,
         "batch_size": experiment_config.batch_size,
         "mean_step_power": mean_step_power,
         "drift_power": drift_power,
-        "diffusion_power": max(mean_step_power - drift_power, 0.0),
+        "update_variance_power": max(mean_step_power - drift_power, 0.0),
+        "block_lengths": list(BLOCK_LENGTHS),
+        "block_diffusion": block_diffusion,
+        "decision_block": decision_block,
     }
     save_snapshot(
         snapshot_out,
@@ -246,10 +288,16 @@ FLAT_SLOPE_THRESHOLD = 0.15
 DISCRIMINATOR_SEEDS = (0, 1)
 DISCRIMINATOR_BATCHES = (32, 128, 512)
 BASE_BATCH = 128
+BLOCK_LENGTHS = (1, 4, 16, 64)
+DECISION_BLOCK_LENGTH = 64
+MINIMUM_DECISION_BLOCKS = 8
+V_DIRECTION_MAGNITUDE_FLOOR = math.log(1.10)
+DISCRIMINATOR_RESAMPLES = 2_000
+DISCRIMINATOR_SEED = 20_260_715
 
 
 def diffusion_slope(powers_by_batch: Mapping[int, float]) -> float:
-    """OLS slope of ln(diffusion power) on ln(batch size)."""
+    """OLS slope of ln(diffusion) on ln(batch size)."""
     if len(powers_by_batch) < 2:
         raise ValueError("diffusion slope requires at least two batch sizes")
     x = [math.log(batch) for batch in sorted(powers_by_batch)]
@@ -261,67 +309,144 @@ def diffusion_slope(powers_by_batch: Mapping[int, float]) -> float:
     return sxy / sxx
 
 
+def decision_block_diffusion(decision_block: Optional[Mapping[str, object]]) -> Optional[dict]:
+    """Point estimate and leave-one-block-out jackknife SE of ln D_64.
+
+    Returns None whenever the estimate cannot support the uncertainty gate:
+    too few blocks, non-positive point estimate, or a non-positive
+    leave-one-out estimate (v1.5.3: uncertainty destroys decisiveness)."""
+    if not decision_block:
+        return None
+    count = int(decision_block["count"])
+    length = int(decision_block["length"])
+    if count < MINIMUM_DECISION_BLOCKS:
+        return None
+    powers = [float(value) for value in decision_block["block_powers"]]
+    dots = [float(value) for value in decision_block["block_mean_dots"]]
+    mean_power = float(decision_block["mean_power"])
+    if len(powers) != count or len(dots) != count:
+        raise ValueError("decision block scalars are inconsistent")
+    total_power = sum(powers)
+    point = (total_power / count - mean_power) / length
+    if point <= 0:
+        return None
+    leave_one_out = []
+    for index in range(count):
+        mean_power_without = (total_power - powers[index]) / (count - 1)
+        norm_without = (
+            count * count * mean_power - 2 * count * dots[index] + powers[index]
+        ) / ((count - 1) ** 2)
+        estimate = (mean_power_without - norm_without) / length
+        if estimate <= 0:
+            return None
+        leave_one_out.append(math.log(estimate))
+    mean_loo = sum(leave_one_out) / count
+    variance = sum((value - mean_loo) ** 2 for value in leave_one_out)
+    return {
+        "ln_d": math.log(point),
+        "jackknife_se": math.sqrt((count - 1) / count * variance),
+        "blocks": count,
+    }
+
+
 def batch_discriminator(
     predicted_eta50: Mapping[str, Optional[float]],
-    diffusion_powers: Mapping[str, float],
+    diffusion_cells: Mapping[str, Optional[Mapping[str, float]]],
     *,
     seeds: Sequence[int] = DISCRIMINATOR_SEEDS,
     batches: Sequence[int] = DISCRIMINATOR_BATCHES,
     flat_threshold: float = FLAT_SLOPE_THRESHOLD,
+    magnitude_floor: float = V_DIRECTION_MAGNITUDE_FLOOR,
+    resamples: int = DISCRIMINATOR_RESAMPLES,
+    seed: int = DISCRIMINATOR_SEED,
 ) -> dict:
-    """Amendment v1.5.2 section 2: decisive only when the measured-diffusion
-    escape direction exists, is not flat, and opposes the v-conditioned
-    direction. Any other configuration is non-discriminating, which makes
-    null_wins unsatisfiable at verdict time."""
-    slopes = []
-    for seed in seeds:
-        powers = {}
-        for batch in batches:
-            value = diffusion_powers.get(f"{seed}:{batch}")
-            if value is not None and value > 0:
-                powers[batch] = value
-        if len(powers) == len(batches):
-            slopes.append(diffusion_slope(powers))
-    pooled_slope = sum(slopes) / len(slopes) if slopes else None
-    if pooled_slope is None:
-        noise_direction = None
-    elif abs(pooled_slope) < flat_threshold:
-        noise_direction = "flat"
-    else:
-        noise_direction = "up" if pooled_slope < 0 else "down"
+    """v1.5.3 discriminator: decisive only when the resampled 95% interval of
+    the pooled ln D_64 batch slope lies wholly beyond the flat threshold, the
+    v-conditioned direction clears its magnitude floor, and the two
+    directions oppose. Uncertainty can only destroy decisiveness."""
+    import numpy as np
 
-    def shift_sign(seed: int, batch: int) -> Optional[int]:
-        base = predicted_eta50.get(f"{seed}:{BASE_BATCH}")
-        contrast = predicted_eta50.get(f"{seed}:{batch}")
+    cells: Dict[str, Mapping[str, float]] = {}
+    complete = True
+    for seed_value in seeds:
+        for batch in batches:
+            entry = diffusion_cells.get(f"{seed_value}:{batch}")
+            if entry is None:
+                complete = False
+            else:
+                cells[f"{seed_value}:{batch}"] = entry
+    point_slopes = []
+    pooled_point = None
+    slope_interval = None
+    noise_direction = None
+    if complete:
+        for seed_value in seeds:
+            point_slopes.append(
+                diffusion_slope(
+                    {
+                        batch: math.exp(cells[f"{seed_value}:{batch}"]["ln_d"])
+                        for batch in batches
+                    }
+                )
+            )
+        pooled_point = sum(point_slopes) / len(point_slopes)
+        rng = np.random.default_rng(seed)
+        draws = []
+        for _ in range(resamples):
+            seed_slopes = []
+            for seed_value in seeds:
+                sampled = {}
+                for batch in batches:
+                    cell = cells[f"{seed_value}:{batch}"]
+                    sampled[batch] = math.exp(
+                        rng.normal(cell["ln_d"], cell["jackknife_se"])
+                    )
+                seed_slopes.append(diffusion_slope(sampled))
+            draws.append(sum(seed_slopes) / len(seed_slopes))
+        low, high = np.percentile(draws, [2.5, 97.5])
+        slope_interval = [float(low), float(high)]
+        if low > flat_threshold:
+            noise_direction = "down"
+        elif high < -flat_threshold:
+            noise_direction = "up"
+        else:
+            noise_direction = "flat_or_uncertain"
+
+    def shift_sign(seed_value: int, batch: int) -> Optional[int]:
+        base = predicted_eta50.get(f"{seed_value}:{BASE_BATCH}")
+        contrast = predicted_eta50.get(f"{seed_value}:{batch}")
         if base is None or contrast is None or base <= 0 or contrast <= 0:
             return None
         difference = math.log(contrast / base)
-        if difference == 0.0:
+        if abs(difference) < magnitude_floor:
             return None
         return 1 if difference > 0 else -1
 
     v_direction = None
-    low_signs = {shift_sign(seed, 32) for seed in seeds}
-    high_signs = {shift_sign(seed, 512) for seed in seeds}
+    low_signs = {shift_sign(seed_value, 32) for seed_value in seeds}
+    high_signs = {shift_sign(seed_value, 512) for seed_value in seeds}
     if (
         len(low_signs) == 1
         and len(high_signs) == 1
         and None not in low_signs
         and None not in high_signs
     ):
-        low = low_signs.pop()
-        high = high_signs.pop()
-        if low == -high:
-            v_direction = "up" if high > 0 else "down"
+        low_sign = low_signs.pop()
+        high_sign = high_signs.pop()
+        if low_sign == -high_sign:
+            v_direction = "up" if high_sign > 0 else "down"
     decisive = (
         v_direction is not None
         and noise_direction in ("up", "down")
         and noise_direction != v_direction
     )
     return {
-        "per_seed_slopes": slopes,
-        "pooled_dlnD_dlnB": pooled_slope,
+        "per_seed_point_slopes": point_slopes,
+        "pooled_dlnD_dlnB": pooled_point,
+        "slope_interval_95": slope_interval,
         "flat_threshold": flat_threshold,
+        "v_magnitude_floor": magnitude_floor,
+        "cells_complete": complete,
         "noise_predicted_direction": noise_direction,
         "v_conditioned_direction": v_direction,
         "status": "decisive" if decisive else "non_discriminating",
@@ -353,7 +478,7 @@ def freeze_null_predictions(
     c_star = radius_at(dev_table, float(dev_eta50))
     predictions = {}
     predicted_eta50: Dict[str, Optional[float]] = {}
-    diffusion_powers: Dict[str, float] = {}
+    diffusion_cells: Dict[str, Optional[dict]] = {}
     for label, path in sorted(gate_null_paths.items()):
         seed_text, _, batch_text = str(label).partition(":")
         int(seed_text), int(batch_text)  # labels must parse as seed:batch
@@ -369,7 +494,9 @@ def freeze_null_predictions(
         refresh = gate_null.get("refresh", {})
         diffusion = refresh.get("update_diffusion")
         if isinstance(diffusion, dict):
-            diffusion_powers[str(label)] = float(diffusion["diffusion_power"])
+            diffusion_cells[str(label)] = decision_block_diffusion(
+                diffusion.get("decision_block")
+            )
     payload = {
         "schema_version": 1,
         "kind": "gate0e_null_predictions",
@@ -377,7 +504,7 @@ def freeze_null_predictions(
         "c_star": c_star,
         "dev_radius_table": dev_table,
         "predictions": predictions,
-        "batch_discriminator": batch_discriminator(predicted_eta50, diffusion_powers),
+        "batch_discriminator": batch_discriminator(predicted_eta50, diffusion_cells),
         "inputs": {
             "dev_curve": bind_file(Path(dev_curve_path)),
             "dev_null": bind_file(Path(dev_null_path)),
