@@ -577,3 +577,18 @@ discriminator, pass/kill rules, and the Gate 1 handoff at η₅₀). All v1.4.1
 sealing, manifest, and re-derivation machinery remains in force. No autopsy
 label, branch activation, or new run outcome existed when this amendment was
 committed.
+
+### 2026-07-15 — version 1.5.1, batch-shift sign statistic
+
+Synthetic verdict tests showed the design-note-6 statistic — bootstrap CIs on
+`log eta50(B) - log eta50(128)` from two-rate six-stream cells — is
+structurally underpowered: a third of resamples are degenerate (no eta50), the
+CI conditions on fit success, and a saturated batch cell leaves the statistic
+undefined entirely. The registered directional discriminator is now the
+pooled Haldane-Anscombe log-odds shift of the erasure fraction at the fixed
+contrast rates, whose predicted sign is the negative of the predicted
+`log eta50` shift sign; every bootstrap resample is valid and saturation is
+tolerated. Descriptive eta50 shifts are still reported. The amendment's
+decision semantics (matches, opposite, CI-excluding rules) are unchanged. No
+batch cell, gate curve, or dev-curve statistic had been run or read; the dev
+escape curve was still executing with no aggregate written.

@@ -29,6 +29,7 @@ from .gate0_analysis import (
 from .gate0_autopsy import run_autopsy
 from .gate0e_control import write_positive_control
 from .gate0e_escape import GATE0E_GRID, GATE0E_STREAMS, run_escape_curve
+from .gate0e_verdict import gate0e_verdict
 from .gate0e_null import (
     REFRESH_RATE,
     REFRESH_STEPS,
@@ -578,10 +579,26 @@ def main() -> None:
         "--gate-null",
         action="append",
         required=True,
-        metavar="SEED:PATH",
-        help="repeatable seed:path pairs for gate-seed null scans",
+        metavar="SEED:BATCH:PATH",
+        help="repeatable seed:batch:path triples for condition null scans",
     )
     gate0e_freeze.add_argument("--output", type=Path, required=True)
+    gate0e_verdict_parser = subparsers.add_parser(
+        "gate0e-verdict",
+        help="apply the frozen amendment v1.5 section 2.5 decision rule",
+    )
+    gate0e_verdict_parser.add_argument("--predictions", type=Path, required=True)
+    gate0e_verdict_parser.add_argument(
+        "--gate-curve", action="append", required=True, metavar="SEED:PATH"
+    )
+    gate0e_verdict_parser.add_argument(
+        "--batch-curve", action="append", required=True, metavar="SEED:BATCH:PATH"
+    )
+    gate0e_verdict_parser.add_argument(
+        "--contrast-rates", type=float, nargs=2, required=True
+    )
+    gate0e_verdict_parser.add_argument("--wd-curve", type=Path, default=None)
+    gate0e_verdict_parser.add_argument("--output", type=Path, required=True)
     memory = subparsers.add_parser(
         "memory-factorial", help="run matched-step weights x optimizer-state surgery"
     )
@@ -1221,8 +1238,8 @@ def main() -> None:
     elif args.command == "gate0e-freeze-predictions":
         gate_paths = {}
         for entry in args.gate_null:
-            seed_text, _, path_text = entry.partition(":")
-            gate_paths[int(seed_text)] = Path(path_text)
+            seed_text, batch_text, path_text = entry.split(":", 2)
+            gate_paths[f"{int(seed_text)}:{int(batch_text)}"] = Path(path_text)
         sealed = freeze_null_predictions(
             args.dev_curve, args.dev_null, gate_paths, args.output
         )
@@ -1236,6 +1253,57 @@ def main() -> None:
                         for seed, entry in sealed["predictions"].items()
                     },
                     "result_sha256": sealed["result_sha256"],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    elif args.command == "gate0e-verdict":
+        predictions_artifact = json.loads(args.predictions.read_text())
+        gate_curves = {}
+        for entry in args.gate_curve:
+            seed_text, _, path_text = entry.partition(":")
+            gate_curves[int(seed_text)] = json.loads(Path(path_text).read_text())
+        batch_curves = {}
+        batch_inputs = {}
+        for entry in args.batch_curve:
+            seed_text, batch_text, path_text = entry.split(":", 2)
+            key = f"{int(seed_text)}:{int(batch_text)}"
+            batch_curves[key] = json.loads(Path(path_text).read_text())
+            batch_inputs[key] = bind_file(Path(path_text))
+        wd_curve = None
+        if args.wd_curve is not None:
+            wd_curve = json.loads(args.wd_curve.read_text())
+        report = gate0e_verdict(
+            predictions_artifact,
+            gate_curves,
+            batch_curves,
+            args.contrast_rates,
+            wd_curve,
+        )
+        report["inputs"] = {
+            "predictions": bind_file(args.predictions),
+            "gate_curves": {
+                entry.partition(":")[0]: bind_file(Path(entry.partition(":")[2]))
+                for entry in args.gate_curve
+            },
+            "batch_curves": batch_inputs,
+            "wd_curve": None if args.wd_curve is None else bind_file(args.wd_curve),
+        }
+        args.output.mkdir(parents=True, exist_ok=True)
+        result_path = args.output / "verdict.json"
+        temporary = result_path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(report, indent=1, sort_keys=True) + "\n")
+        temporary.replace(result_path)
+        print(
+            json.dumps(
+                {
+                    "outcome": report["outcome"],
+                    "action": report["action"],
+                    "claim_status": report["claim_status"],
+                    "miss_count": report["miss_count"],
+                    "batch_matches": report["batch_shift"]["matches_prediction"],
+                    "output": str(result_path),
                 },
                 indent=2,
                 sort_keys=True,

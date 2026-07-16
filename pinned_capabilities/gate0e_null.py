@@ -223,10 +223,15 @@ def crossing_rate(table: Sequence[Mapping[str, object]], c_star: float) -> dict:
 def freeze_null_predictions(
     dev_curve_path: Path,
     dev_null_path: Path,
-    gate_null_paths: Mapping[int, Path],
+    gate_null_paths: Mapping[str, Path],
     output_path: Path,
 ) -> dict:
-    """Compute c* from the dev pair and commit out-of-sample predictions."""
+    """Compute c* from the dev pair and commit out-of-sample predictions.
+
+    ``gate_null_paths`` is keyed by condition label ``"<seed>:<batch>"`` so the
+    same artifact carries the primary-curve predictions (batch 128) and the
+    batch-cell predictions used by the directional discriminator.
+    """
     dev_curve = json.loads(Path(dev_curve_path).read_text())
     if dev_curve.get("kind") != "gate0e_escape_curve":
         raise ValueError("dev curve artifact has the wrong kind")
@@ -239,11 +244,13 @@ def freeze_null_predictions(
     dev_table = radius_table(dev_null)
     c_star = radius_at(dev_table, float(dev_eta50))
     predictions = {}
-    for seed, path in sorted(gate_null_paths.items()):
+    for label, path in sorted(gate_null_paths.items()):
+        seed_text, _, batch_text = str(label).partition(":")
+        int(seed_text), int(batch_text)  # labels must parse as seed:batch
         gate_null = json.loads(Path(path).read_text())
         table = radius_table(gate_null)
         prediction = crossing_rate(table, c_star)
-        predictions[str(seed)] = {
+        predictions[str(label)] = {
             "prediction": prediction,
             "radius_table": table,
             "input": bind_file(Path(path)),

@@ -146,7 +146,9 @@ def logistic_fit(
     separation = bool(abs(theta[1]) >= SLOPE_CAP)
     eta50 = None
     if theta[1] > 0:
-        eta50 = float(math.exp(-theta[0] / theta[1]))
+        exponent = -theta[0] / theta[1]
+        if abs(exponent) < 700.0:
+            eta50 = float(math.exp(exponent))
     return LogisticFit(
         intercept=float(theta[0]),
         slope=float(theta[1]),

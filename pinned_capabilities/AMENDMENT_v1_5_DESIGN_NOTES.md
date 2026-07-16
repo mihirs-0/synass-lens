@@ -72,16 +72,17 @@ the uncrossed side, or `ambiguous` otherwise).
 
 ## 6. Batch-shift discriminator statistic
 
-The registered statistic is the per-seed difference
-`log eta50(B) - log eta50(128)` for B in {32, 512}, averaged over seeds 0-1,
-with a stream-level bootstrap CI (the same bootstrap draws used for each
-curve's eta50). The v-conditioned predicted direction is the sign of
-`log eta50_pred(B) - log eta50_pred(128)` from the refreshed local scans at
-each batch size. "Matches the v-conditioned direction" means the observed
-mean difference has the predicted sign for both contrasts (32 vs 128 down or
-up per prediction, 512 vs 128 likewise) with each bootstrap CI excluding
-zero on the opposite side; "opposite" means both differences carry the
-opposite sign with CIs excluding agreement.
+**Superseded pre-outcome by v1.5.1 (2026-07-15, deviations appendix).** The
+original statistic here — bootstrap CIs on per-seed
+`log eta50(B) - log eta50(128)` — proved structurally underpowered on
+synthetic verdict tests (degenerate resamples, undefined under saturation)
+before any batch cell or dev statistic existed. The registered statistic is
+now the pooled Haldane-Anscombe log-odds shift of the erasure fraction at
+the fixed contrast rates, averaged over seeds 0-1, with a full-validity
+stream-level bootstrap CI; its predicted sign is the negative of the
+predicted `log eta50` shift sign from the refreshed local scans. The
+matches/opposite decision semantics are unchanged from the amendment;
+descriptive eta50 shifts are reported alongside.
 
 ## 7. Registered estimator details
 
