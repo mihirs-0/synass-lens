@@ -84,6 +84,11 @@ def matched_predictions():
         "kind": "gate0e_null_predictions",
         "c_star": 1.07,
         "dev_eta50": 0.012,
+        "batch_discriminator": {
+            "status": "decisive",
+            "noise_predicted_direction": "up",
+            "v_conditioned_direction": "down",
+        },
         "predictions": {
             "0:128": crossing(0.012),
             "1:128": crossing(0.012),
@@ -199,6 +204,31 @@ class VerdictTests(unittest.TestCase):
         )
         self.assertEqual(report["outcome"], "null_wins")
         self.assertEqual(report["action"], "stop_program")
+
+    def test_non_discriminating_batch_leg_blocks_null_wins(self) -> None:
+        predictions = matched_predictions()
+        predictions["batch_discriminator"] = {"status": "non_discriminating"}
+        report = gate0e_verdict(
+            predictions,
+            self.gate_curves([0.011, 0.013, 0.0115]),
+            matching_batch_curves(),
+            RATES,
+            replicates=300,
+        )
+        self.assertEqual(report["outcome"], "ambiguous")
+        self.assertEqual(report["action"], "open_gate1")
+
+    def test_missing_discriminator_blocks_null_wins(self) -> None:
+        predictions = matched_predictions()
+        del predictions["batch_discriminator"]
+        report = gate0e_verdict(
+            predictions,
+            self.gate_curves([0.011, 0.013, 0.0115]),
+            matching_batch_curves(),
+            RATES,
+            replicates=300,
+        )
+        self.assertEqual(report["outcome"], "ambiguous")
 
     def test_two_misses_lose_the_null(self) -> None:
         report = gate0e_verdict(

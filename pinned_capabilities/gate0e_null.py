@@ -101,13 +101,34 @@ def refresh_moments(
     )
     set_learning_rates(experiment.optimizer, refresh_rate)
     theta_before = _flatten_parameters(experiment.model)
-    first = experiment.advance(1)
-    remainder = experiment.advance(refresh_steps - 1) if refresh_steps > 1 else first
-    theta_after = _flatten_parameters(experiment.model)
+    previous = theta_before.clone()
+    step_sum = torch.zeros_like(previous)
+    squared_power = 0.0
+    first = last = None
+    for step_index in range(refresh_steps):
+        last = experiment.advance(1)
+        if step_index == 0:
+            first = last
+        current = _flatten_parameters(experiment.model)
+        step = current - previous
+        step_sum += step
+        squared_power += float(step.pow(2).sum())
+        previous = current
+    theta_after = previous
     drift = float(
         torch.linalg.vector_norm(theta_after - theta_before)
         / torch.linalg.vector_norm(theta_before)
     )
+    mean_step_power = squared_power / refresh_steps
+    drift_power = float((step_sum / refresh_steps).pow(2).sum())
+    update_diffusion = {
+        "steps": refresh_steps,
+        "refresh_rate": refresh_rate,
+        "batch_size": experiment_config.batch_size,
+        "mean_step_power": mean_step_power,
+        "drift_power": drift_power,
+        "diffusion_power": max(mean_step_power - drift_power, 0.0),
+    }
     save_snapshot(
         snapshot_out,
         model=experiment.model,
@@ -124,8 +145,9 @@ def refresh_moments(
         "controls": controls,
         "step_after": experiment.step,
         "first_step_loss": float(first["train_loss"]),
-        "last_step_loss": float(remainder["train_loss"]),
+        "last_step_loss": float(last["train_loss"]),
         "theta_relative_drift": drift,
+        "update_diffusion": update_diffusion,
         "refreshed_snapshot_sha256": sha256_file(snapshot_out),
     }
     _atomic_write_json(record_path, record)
@@ -220,6 +242,92 @@ def crossing_rate(table: Sequence[Mapping[str, object]], c_star: float) -> dict:
     }
 
 
+FLAT_SLOPE_THRESHOLD = 0.15
+DISCRIMINATOR_SEEDS = (0, 1)
+DISCRIMINATOR_BATCHES = (32, 128, 512)
+BASE_BATCH = 128
+
+
+def diffusion_slope(powers_by_batch: Mapping[int, float]) -> float:
+    """OLS slope of ln(diffusion power) on ln(batch size)."""
+    if len(powers_by_batch) < 2:
+        raise ValueError("diffusion slope requires at least two batch sizes")
+    x = [math.log(batch) for batch in sorted(powers_by_batch)]
+    y = [math.log(powers_by_batch[batch]) for batch in sorted(powers_by_batch)]
+    mean_x = sum(x) / len(x)
+    mean_y = sum(y) / len(y)
+    sxx = sum((value - mean_x) ** 2 for value in x)
+    sxy = sum((a - mean_x) * (b - mean_y) for a, b in zip(x, y))
+    return sxy / sxx
+
+
+def batch_discriminator(
+    predicted_eta50: Mapping[str, Optional[float]],
+    diffusion_powers: Mapping[str, float],
+    *,
+    seeds: Sequence[int] = DISCRIMINATOR_SEEDS,
+    batches: Sequence[int] = DISCRIMINATOR_BATCHES,
+    flat_threshold: float = FLAT_SLOPE_THRESHOLD,
+) -> dict:
+    """Amendment v1.5.2 section 2: decisive only when the measured-diffusion
+    escape direction exists, is not flat, and opposes the v-conditioned
+    direction. Any other configuration is non-discriminating, which makes
+    null_wins unsatisfiable at verdict time."""
+    slopes = []
+    for seed in seeds:
+        powers = {}
+        for batch in batches:
+            value = diffusion_powers.get(f"{seed}:{batch}")
+            if value is not None and value > 0:
+                powers[batch] = value
+        if len(powers) == len(batches):
+            slopes.append(diffusion_slope(powers))
+    pooled_slope = sum(slopes) / len(slopes) if slopes else None
+    if pooled_slope is None:
+        noise_direction = None
+    elif abs(pooled_slope) < flat_threshold:
+        noise_direction = "flat"
+    else:
+        noise_direction = "up" if pooled_slope < 0 else "down"
+
+    def shift_sign(seed: int, batch: int) -> Optional[int]:
+        base = predicted_eta50.get(f"{seed}:{BASE_BATCH}")
+        contrast = predicted_eta50.get(f"{seed}:{batch}")
+        if base is None or contrast is None or base <= 0 or contrast <= 0:
+            return None
+        difference = math.log(contrast / base)
+        if difference == 0.0:
+            return None
+        return 1 if difference > 0 else -1
+
+    v_direction = None
+    low_signs = {shift_sign(seed, 32) for seed in seeds}
+    high_signs = {shift_sign(seed, 512) for seed in seeds}
+    if (
+        len(low_signs) == 1
+        and len(high_signs) == 1
+        and None not in low_signs
+        and None not in high_signs
+    ):
+        low = low_signs.pop()
+        high = high_signs.pop()
+        if low == -high:
+            v_direction = "up" if high > 0 else "down"
+    decisive = (
+        v_direction is not None
+        and noise_direction in ("up", "down")
+        and noise_direction != v_direction
+    )
+    return {
+        "per_seed_slopes": slopes,
+        "pooled_dlnD_dlnB": pooled_slope,
+        "flat_threshold": flat_threshold,
+        "noise_predicted_direction": noise_direction,
+        "v_conditioned_direction": v_direction,
+        "status": "decisive" if decisive else "non_discriminating",
+    }
+
+
 def freeze_null_predictions(
     dev_curve_path: Path,
     dev_null_path: Path,
@@ -244,6 +352,8 @@ def freeze_null_predictions(
     dev_table = radius_table(dev_null)
     c_star = radius_at(dev_table, float(dev_eta50))
     predictions = {}
+    predicted_eta50: Dict[str, Optional[float]] = {}
+    diffusion_powers: Dict[str, float] = {}
     for label, path in sorted(gate_null_paths.items()):
         seed_text, _, batch_text = str(label).partition(":")
         int(seed_text), int(batch_text)  # labels must parse as seed:batch
@@ -255,6 +365,11 @@ def freeze_null_predictions(
             "radius_table": table,
             "input": bind_file(Path(path)),
         }
+        predicted_eta50[str(label)] = prediction.get("predicted_eta50")
+        refresh = gate_null.get("refresh", {})
+        diffusion = refresh.get("update_diffusion")
+        if isinstance(diffusion, dict):
+            diffusion_powers[str(label)] = float(diffusion["diffusion_power"])
     payload = {
         "schema_version": 1,
         "kind": "gate0e_null_predictions",
@@ -262,6 +377,7 @@ def freeze_null_predictions(
         "c_star": c_star,
         "dev_radius_table": dev_table,
         "predictions": predictions,
+        "batch_discriminator": batch_discriminator(predicted_eta50, diffusion_powers),
         "inputs": {
             "dev_curve": bind_file(Path(dev_curve_path)),
             "dev_null": bind_file(Path(dev_null_path)),

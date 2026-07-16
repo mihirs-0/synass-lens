@@ -6,7 +6,9 @@ from pathlib import Path
 from pinned_capabilities.config import MBCExperimentConfig, MetricConfig
 from pinned_capabilities.experiment import MBCExperiment
 from pinned_capabilities.gate0e_null import (
+    batch_discriminator,
     crossing_rate,
+    diffusion_slope,
     radius_at,
     radius_table,
     refresh_data_seed,
@@ -87,6 +89,63 @@ class RadiusTableTests(unittest.TestCase):
         self.assertTrue(result["predicted_eta50"] < 0.01)
 
 
+def sgd_like_powers():
+    return {
+        "0:32": 4.0, "0:128": 1.0, "0:512": 0.25,
+        "1:32": 4.0, "1:128": 1.0, "1:512": 0.25,
+    }
+
+
+def flat_powers():
+    return {
+        "0:32": 1.0, "0:128": 1.05, "0:512": 0.98,
+        "1:32": 1.02, "1:128": 1.0, "1:512": 1.01,
+    }
+
+
+def down_predictions():
+    return {
+        "0:128": 0.012, "1:128": 0.012,
+        "0:32": 0.03, "1:32": 0.03,
+        "0:512": 0.005, "1:512": 0.005,
+    }
+
+
+class DiscriminatorTests(unittest.TestCase):
+    def test_diffusion_slope_recovers_exponent(self) -> None:
+        slope = diffusion_slope({32: 4.0, 128: 1.0, 512: 0.25})
+        self.assertAlmostEqual(slope, -1.0, places=10)
+
+    def test_sgd_like_diffusion_opposing_null_is_decisive(self) -> None:
+        block = batch_discriminator(down_predictions(), sgd_like_powers())
+        self.assertEqual(block["noise_predicted_direction"], "up")
+        self.assertEqual(block["v_conditioned_direction"], "down")
+        self.assertEqual(block["status"], "decisive")
+
+    def test_flat_diffusion_is_non_discriminating(self) -> None:
+        block = batch_discriminator(down_predictions(), flat_powers())
+        self.assertEqual(block["noise_predicted_direction"], "flat")
+        self.assertEqual(block["status"], "non_discriminating")
+
+    def test_agreeing_directions_are_non_discriminating(self) -> None:
+        rising = {key: 1.0 / value for key, value in sgd_like_powers().items()}
+        block = batch_discriminator(down_predictions(), rising)
+        self.assertEqual(block["noise_predicted_direction"], "down")
+        self.assertEqual(block["status"], "non_discriminating")
+
+    def test_censored_prediction_is_non_discriminating(self) -> None:
+        predictions = down_predictions()
+        predictions["1:512"] = None
+        block = batch_discriminator(predictions, sgd_like_powers())
+        self.assertIsNone(block["v_conditioned_direction"])
+        self.assertEqual(block["status"], "non_discriminating")
+
+    def test_missing_diffusion_is_non_discriminating(self) -> None:
+        block = batch_discriminator(down_predictions(), {"0:128": 1.0})
+        self.assertIsNone(block["pooled_dlnD_dlnB"])
+        self.assertEqual(block["status"], "non_discriminating")
+
+
 class RefreshTests(unittest.TestCase):
     def test_refresh_produces_bound_reusable_snapshot(self) -> None:
         config = MBCExperimentConfig(
@@ -125,6 +184,14 @@ class RefreshTests(unittest.TestCase):
                 refresh_data_seed(6, 16),
             )
             self.assertGreater(record["theta_relative_drift"], 0.0)
+            diffusion = record["update_diffusion"]
+            self.assertEqual(diffusion["steps"], 20)
+            self.assertEqual(diffusion["batch_size"], 16)
+            self.assertGreater(diffusion["mean_step_power"], 0.0)
+            self.assertGreaterEqual(
+                diffusion["mean_step_power"], diffusion["drift_power"]
+            )
+            self.assertGreaterEqual(diffusion["diffusion_power"], 0.0)
             self.assertTrue((workspace / "refresh/refreshed_snapshot.pt").exists())
             again = refresh_moments(
                 config, metric, base, workspace / "refresh", refresh_steps=20

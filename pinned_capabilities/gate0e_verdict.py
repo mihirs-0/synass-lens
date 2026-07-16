@@ -375,9 +375,17 @@ def gate0e_verdict(
     batch_analysis = batch_shift_analysis(
         batch_curves, contrast_rates, predictions, replicates=replicates
     )
+    discriminator = predictions_artifact.get("batch_discriminator") or {
+        "status": "missing"
+    }
+    discriminator_decisive = discriminator.get("status") == "decisive"
     all_within = all(check["within_match"] for check in seed_checks.values())
     miss_count = sum(1 for check in seed_checks.values() if check["off_miss"])
-    if all_within and batch_analysis["matches_prediction"] is True:
+    if (
+        discriminator_decisive
+        and all_within
+        and batch_analysis["matches_prediction"] is True
+    ):
         outcome = "null_wins"
         action = "stop_program"
         claim = None
@@ -389,12 +397,30 @@ def gate0e_verdict(
         outcome = "ambiguous"
         action = "open_gate1"
         claim = "demoted"
+    claim_language = {
+        "null_wins": (
+            "The capability erasure boundary was locally predictable from one"
+            " checkpoint measurement, out of sample, with a decisive"
+            " measured-diffusion batch discriminator."
+        ),
+        "null_loses": (
+            "The registered one-checkpoint deterministic local predictor"
+            " (certified augmented spectral radius with one dev-fit constant)"
+            " failed out of sample. This does not itself establish"
+            " noise-activated escape; mechanism claims require the registered"
+            " affirmative evidence."
+        ),
+        "ambiguous": "Local stability was not established as sufficient.",
+    }[outcome]
     report = {
         "schema_version": 1,
         "kind": "gate0e_verdict",
+        "protocol_amendment": "v1.5.2",
         "outcome": outcome,
         "action": action,
         "claim_status": claim,
+        "claim_language": claim_language,
+        "batch_discriminator": discriminator,
         "seed_checks": seed_checks,
         "miss_count": miss_count,
         "batch_shift": batch_analysis,
