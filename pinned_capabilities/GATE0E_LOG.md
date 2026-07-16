@@ -229,3 +229,25 @@ plateau (CE 3.56-3.585, C_int ~0), including 0.003 — while FORKED runs at
 collapsed states (16k at 0.0125) escape slower than fresh inits at 0.001.
 Consistent with plateau entrenchment growing with dwell time (legacy:
 "deepened prior delays"). Interim - full horizons pending.
+
+## 2026-07-16 14:35 — controls, second readout
+
+**Full-batch fork at 0.0125 (exact full-dataset gradient): NO collapse
+through step 200** (CE 0.000, C_int 17.1->17.4, EM 1.00) - versus 8/8
+minibatch collapses by ~step 100 at the same rate from the same snapshot.
+The fork collapse is noise-driven, not a deterministic step-size
+instability. Follow-up queued: full-batch continuation FROM the stuck
+state (noise-maintained vs geometric trapping).
+
+**Fresh-init (n=1/rate, interim ~20k/25k):** eta=0.003 escaped at 10,450
+(forked escaped ~1,300: 8x faster); eta=0.005 STUCK at 19,900 (forked
+escaped ~3,400); eta=0.0125 stuck. Fresh learnability boundary lies
+between 0.003 and 0.005 (legacy eta* ~ 5e-3 consistent). Combined with
+the races: young post-fork collapsed states are BETTER starting points
+than random init (escape at rates fresh cannot); 16k-aged collapsed
+states are WORSE (no onset at 0.001 in 12k). Residual structure exists in
+the young collapsed state and decays with high-eta dwell - measurable as
+escape advantage, not as spontaneous return.
+
+**1b note:** stuck-state radius scan died (BrokenProcessPool under load
+35); relaunching single-worker when fresh-init slots free.
