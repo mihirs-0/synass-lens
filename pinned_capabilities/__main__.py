@@ -29,6 +29,13 @@ from .gate0_analysis import (
 from .gate0_autopsy import run_autopsy
 from .gate0e_control import write_positive_control
 from .gate0e_escape import GATE0E_GRID, GATE0E_STREAMS, run_escape_curve
+from .gate0e_null import (
+    REFRESH_RATE,
+    REFRESH_STEPS,
+    freeze_null_predictions,
+    radius_table,
+    run_null_scan,
+)
 from .gate0_boundary import (
     geometric_erasure_bisection,
     run_acquisition_branch,
@@ -384,6 +391,18 @@ def main() -> None:
     _add_batch_size(prepare_expressed)
     _add_calibration(prepare_expressed)
     _add_first_cell_analysis(prepare_expressed)
+    prepare_expressed.add_argument(
+        "--gate0e-autopsy",
+        type=Path,
+        default=None,
+        help="v1.5 alternative authorization: committed Branch A autopsy artifact",
+    )
+    prepare_expressed.add_argument(
+        "--gate0e-control",
+        type=Path,
+        default=None,
+        help="v1.5 alternative authorization: passing positive-control artifact",
+    )
     hysteresis = subparsers.add_parser(
         "hysteresis", help="run transactionally resumable two-cycle Gate 1 sweeps"
     )
@@ -534,6 +553,35 @@ def main() -> None:
         help="committed gate-seed prediction artifact; required for official seeds",
     )
     _add_batch_size(gate0e_curve)
+    gate0e_null = subparsers.add_parser(
+        "gate0e-null-scan",
+        help="moment refresh plus certified local-stability scan for one condition",
+    )
+    gate0e_null.add_argument("--seed", type=int, required=True)
+    gate0e_null.add_argument("--device", default="cpu")
+    gate0e_null.add_argument("--snapshot", type=Path, required=True)
+    gate0e_null.add_argument("--autopsy", type=Path, required=True)
+    gate0e_null.add_argument("--output", type=Path, required=True)
+    gate0e_null.add_argument("--workers", type=int, default=1)
+    gate0e_null.add_argument(
+        "--rates", type=float, nargs="*", default=None,
+        help="challenge rates; defaults to the active Branch A grid",
+    )
+    _add_batch_size(gate0e_null)
+    gate0e_freeze = subparsers.add_parser(
+        "gate0e-freeze-predictions",
+        help="compute c* from the dev pair and commit gate-seed predictions",
+    )
+    gate0e_freeze.add_argument("--dev-curve", type=Path, required=True)
+    gate0e_freeze.add_argument("--dev-null", type=Path, required=True)
+    gate0e_freeze.add_argument(
+        "--gate-null",
+        action="append",
+        required=True,
+        metavar="SEED:PATH",
+        help="repeatable seed:path pairs for gate-seed null scans",
+    )
+    gate0e_freeze.add_argument("--output", type=Path, required=True)
     memory = subparsers.add_parser(
         "memory-factorial", help="run matched-step weights x optimizer-state surgery"
     )
@@ -714,12 +762,43 @@ def main() -> None:
         thresholds = StateThresholds(**asdict(config.state))
         experiment_config = _runtime_experiment(config, args)
         _validate_expressed_preparation_controls(config, args, experiment_config)
-        calibration_input = _require_official_calibration(args, config)
-        first_cell_analysis = (
-            _first_cell_analysis_input(args.first_cell_analysis, config)
-            if args.seed in config.gate0.seeds and not _is_first_cell(config, experiment_config)
-            else None
-        )
+        calibration_input = None
+        gate0e_authorization = None
+        first_cell_analysis = None
+        if args.seed in config.gate0.seeds and args.calibration is None:
+            if args.gate0e_autopsy is None or args.gate0e_control is None:
+                raise ValueError(
+                    "official expressed preparation requires either a passed"
+                    " calibration artifact or the v1.5 Branch A authorization"
+                    " (autopsy plus passing positive control)"
+                )
+            autopsy_report = json.loads(args.gate0e_autopsy.read_text())
+            if (
+                autopsy_report.get("kind") != "gate0_autopsy_v1_5"
+                or autopsy_report["activation"].get("primary_branch") != "A"
+            ):
+                raise ValueError(
+                    "v1.5 state preparation requires the committed Branch A autopsy"
+                )
+            control_report = json.loads(args.gate0e_control.read_text())
+            if control_report.get("kind") != "gate0e_positive_control" or not control_report.get("passed"):
+                raise ValueError(
+                    "v1.5 state preparation requires a passing positive control"
+                )
+            gate0e_authorization = {
+                "autopsy_input": bind_file(args.gate0e_autopsy),
+                "control_input": bind_file(args.gate0e_control),
+                "design_note": "AMENDMENT_v1_5_DESIGN_NOTES.md section 2:"
+                " state preparation only; no fate run is authorized by this input",
+            }
+        else:
+            calibration_input = _require_official_calibration(args, config)
+            first_cell_analysis = (
+                _first_cell_analysis_input(args.first_cell_analysis, config)
+                if args.seed in config.gate0.seeds
+                and not _is_first_cell(config, experiment_config)
+                else None
+            )
         frozen = {
             "kind": "expressed_state_preparation",
             "protocol_version": config.protocol_version,
@@ -729,6 +808,7 @@ def main() -> None:
             "reference_path": str(args.reference),
             "reference_input": _reference_input(args.reference),
             "calibration_input": calibration_input,
+            "gate0e_authorization": gate0e_authorization,
             "first_cell_analysis": first_cell_analysis,
             "learning_rate": args.learning_rate,
             "save_at_step": args.save_at_step,
@@ -1081,6 +1161,81 @@ def main() -> None:
                         rate: cell["primary_fraction"]
                         for rate, cell in report["cells"].items()
                     },
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    elif args.command == "gate0e-null-scan":
+        autopsy_report = json.loads(args.autopsy.read_text())
+        if autopsy_report.get("kind") != "gate0_autopsy_v1_5":
+            raise ValueError("gate0e-null-scan requires the committed v1.5 autopsy artifact")
+        if autopsy_report["activation"].get("primary_branch") != "A":
+            raise ValueError("Branch A is not active; gate0e-null-scan is not authorized")
+        grid = list(GATE0E_GRID)
+        if autopsy_report["activation"].get("grid_cap") is not None:
+            cap = float(autopsy_report["activation"]["grid_cap"])
+            grid = [rate for rate in grid if rate <= cap]
+        rates = sorted(float(rate) for rate in args.rates) if args.rates else grid
+        experiment_config = _runtime_experiment(config, args)
+        frozen = {
+            "kind": "gate0e_null_scan",
+            "protocol_version": config.protocol_version,
+            "amendment": "v1.5.0",
+            "experiment": experiment_config,
+            "metric": config.metric,
+            "gate0": config.gate0,
+            "learning_rates": rates,
+            "refresh_steps": REFRESH_STEPS,
+            "refresh_rate": REFRESH_RATE,
+            "snapshot_input": _snapshot_input(args.snapshot, experiment_config),
+            "autopsy_input": bind_file(args.autopsy),
+        }
+        freeze_manifest(frozen, args.output / "manifest.json", repo=Path.cwd())
+        summary = run_null_scan(
+            experiment_config,
+            config.metric,
+            config.gate0,
+            args.snapshot,
+            rates,
+            args.output,
+            workers=args.workers,
+        )
+        print(
+            json.dumps(
+                {
+                    "theta_relative_drift": summary["refresh"]["theta_relative_drift"],
+                    "radii": {
+                        f"{row['learning_rate']:g}": row["radius"]
+                        for row in radius_table(summary)
+                    },
+                    "all_certified": summary["scan"][
+                        "all_augmented_eigenpairs_certified"
+                    ],
+                    "output": str(args.output),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    elif args.command == "gate0e-freeze-predictions":
+        gate_paths = {}
+        for entry in args.gate_null:
+            seed_text, _, path_text = entry.partition(":")
+            gate_paths[int(seed_text)] = Path(path_text)
+        sealed = freeze_null_predictions(
+            args.dev_curve, args.dev_null, gate_paths, args.output
+        )
+        print(
+            json.dumps(
+                {
+                    "dev_eta50": sealed["dev_eta50"],
+                    "c_star": sealed["c_star"],
+                    "predictions": {
+                        seed: entry["prediction"]
+                        for seed, entry in sealed["predictions"].items()
+                    },
+                    "result_sha256": sealed["result_sha256"],
                 },
                 indent=2,
                 sort_keys=True,
