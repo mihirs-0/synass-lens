@@ -562,3 +562,18 @@ registered order. The positive control now also exercises the production
 augmented-Adam HVP/eigensolver against centered finite differences. No seed-100
 boundary scan or seed 0--4 gate fate had been run or inspected, so the audit
 changed no scientific outcome.
+
+### 2026-07-15 — version 1.5.0, conditional Gate 0 reformulation
+
+The v1.4.1 seed-100 calibration ended in `stop_before_gate0`: the frozen grid
+contained no strict adjacent retained-to-erased pair. Amendment v1.5
+([`AMENDMENT_v1_5.md`](AMENDMENT_v1_5.md)) was committed before any autopsy of
+the three sealed unresolved cells. It freezes: a five-label autopsy classifier
+with fixed precedence; a mechanical label-to-branch mapping (Branch A
+escape-curve reformulation, Branch B deterministic parametric fix, Branch C
+intermediate-state addendum); the complete Branch A design (grid, streams,
+holds, dev/gate split, one-constant null with a v-conditioned batch-shift sign
+discriminator, pass/kill rules, and the Gate 1 handoff at η₅₀). All v1.4.1
+sealing, manifest, and re-derivation machinery remains in force. No autopsy
+label, branch activation, or new run outcome existed when this amendment was
+committed.
