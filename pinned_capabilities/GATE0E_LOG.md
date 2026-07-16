@@ -265,3 +265,27 @@ deterministic step-size instability. Fresh-init finals: 0.003 escapes at
 flight: full-batch continuation FROM the stuck state (noise-maintained vs
 geometric trap) and the stuck-state radius scan (1b, relaunched
 in-process after two pool crashes under memory pressure).
+
+## 2026-07-16 19:00 — 1b: the stuck state is locally UNSTABLE on paper
+
+Augmented AdamW spectral radius AT the stuck eta=0.0125 checkpoint (its own
+theta, m, v; certified at all 7 rates), against the solved state:
+
+| rate | solved | stuck |
+|---:|---:|---:|
+| 0.003 | 1.053 | 1.353 |
+| 0.005 | 1.062 | 1.495 |
+| 0.008 | 1.097 | 1.680 |
+| 0.0125 | 1.124 | 1.926 |
+| 0.02 | 1.139 | 2.297 |
+| 0.032 | 1.220 | 4.397 |
+| 0.05 | 1.307 | 8.149 |
+
+The "parked => radius < 1" hypothesis is refuted in the strongest direction:
+the state that never moves for 16,000 steps carries the largest certified
+multipliers measured in this project (1.93 at its own rate). The
+deterministic checkpoint-local linearization is uninformative about
+trapping here - the plateau is a noise-maintained stationary distribution
+or nonlinearly re-attracted orbit, not a locally stable fixed point.
+Numbers only; mechanism deferred to the full-batch-from-stuck run (in
+flight: no escape through 350 steps, CE pinned at 3.580).
