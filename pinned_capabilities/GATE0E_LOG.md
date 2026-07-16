@@ -140,3 +140,19 @@ the condition's batch size when diffusion is measured, inflating the
 apparent batch dependence. Verdict-irrelevant (the discriminator is
 already void), but it must be resolved before D enters any positive
 mechanism claim.
+
+## 2026-07-16 12:05 — age test REFUTES the age-confound hypothesis
+
+Seed-100 re-prepared at step 8,000 (matching the gate recipe) and re-scanned:
+radii shift by -0.005 to -0.030 versus its 6,400-step table (mean -0.010,
+sign mixed, +0.013 at 0.005). The gate-versus-dev offset (-0.024 to -0.094,
+mean -0.047) is therefore predominantly seed-level, not snapshot age. c*
+transfer carries at most a small age component. Consequence, recorded before
+any gate curve seals: the sealed predictions' elevation above dev's boundary
+is either genuine seed physics (gate boundaries truly higher - a predictor
+hit if the curves land near 0.011-0.016) or seed-level scatter in an
+instrument whose noise equals its required resolution (a miss if the curves
+land dev-like near 0.0067). The measurement note's item 2 hypothesis is
+closed as refuted; item 1 (conditioning) stands. Artifact:
+results/gate0e_null_seed100_age8000/null_scan.json.
+- `ac46dcd6ca40d2c8eef1c2a9107b4b262851c6f51b64f34714a2f6b50ef39e76` pinned_capabilities/results/gate0e_null_seed100_age8000/null_scan.json
