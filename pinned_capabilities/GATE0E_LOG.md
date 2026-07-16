@@ -196,3 +196,36 @@ The Gate 0-E machinery, verdict, and wave are unchanged - the frozen
 pipeline measures what it measures; the INTERPRETATION of "erasure
 boundary" is now "maximum rate at which the post-fork plateau is
 escapable," pending the controls.
+
+## 2026-07-16 13:50 — Task-1 checkpoint measurements + first control results
+
+**1a. Weight norms (L2), stuck eta=0.0125 @16k vs solved vs init.** Global:
+init 71.9, solved 103.9, stuck 254.9 (stuck/solved = 2.45x, stuck/init =
+3.55x). Per group (stuck/solved): embeddings 4.62x, attention 2.92x, MLP
+2.43x, unembedding 2.23x, layer_norms **0.45x**. The pure-decay shrinkage
+prediction (e^-2 = 0.135x) is refuted: weights GREW except LN gains, which
+halved.
+
+**1c. Output distribution at the stuck state.** Per-example entropy
+3.5794-3.5805 at every answer position (mean-dist 3.5801-3.5811), floor
+3.5818, ln 36 = 3.5835. KL to data marginal 0.005-0.006 vs KL to uniform
+0.108: every input maps to the same data-marginal distribution;
+zero input information at the output. Replicates legacy Exp4b in this
+pipeline.
+
+**1b.** Stuck-state augmented radius scan running (certified path, no
+refresh); table to be appended.
+
+**Recovery races (n=2, exploratory).** Post-fork collapsed states (16k
+steps at 0.0125) dropped to eta=0.001 for 12,000 steps: NO onset
+(final C_int 0.077 / 0.007, EM 0.0). Fresh inits at 0.001 solve in
+3,300-4,700 steps (10/10). At n=2: the aged collapsed state is a worse
+starting point than random initialization at the original training rate.
+
+**Fresh-init interim (6,600/25,000 steps).** All three rates still on the
+plateau (CE 3.56-3.585, C_int ~0), including 0.003 — while FORKED runs at
+0.003 escaped at ~1,300 steps. Two-sided so far: young collapsed states
+(fork+~100 steps) escape faster than fresh inits at the same rate; aged
+collapsed states (16k at 0.0125) escape slower than fresh inits at 0.001.
+Consistent with plateau entrenchment growing with dwell time (legacy:
+"deepened prior delays"). Interim - full horizons pending.
