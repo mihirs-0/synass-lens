@@ -251,3 +251,17 @@ escape advantage, not as spontaneous return.
 
 **1b note:** stuck-state radius scan died (BrokenProcessPool under load
 35); relaunching single-worker when fresh-init slots free.
+
+## 2026-07-16 18:05 — kick anatomy complete
+
+**Fork at eta=0.001 (training rate), 2 streams, 8,000 steps: NO collapse**
+(max CE 0.0004; C_int grew 17.9 -> 21.3). **Full-batch fork at 0.0125,
+capped at 550 steps: NO collapse** (max CE 0.0003) - 5x past the minibatch
+collapse window. Together with 8/8 minibatch collapses at every rate
+>= 0.003: the fork collapse requires BOTH minibatch noise AND a rate above
+a threshold between 0.001 and 0.003. It is not data-order shock and not a
+deterministic step-size instability. Fresh-init finals: 0.003 escapes at
+10,450 (forked: ~1,300), 0.005 and 0.0125 never in 25k. Remaining in
+flight: full-batch continuation FROM the stuck state (noise-maintained vs
+geometric trap) and the stuck-state radius scan (1b, relaunched
+in-process after two pool crashes under memory pressure).
