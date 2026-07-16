@@ -86,3 +86,57 @@ higher, it hits the 1.5x band. Live either way.
 
 Artifact: `ede7474ae6f8ca17b94014698de757ace98ce8e2dc8a741e2df448415dcf17ea`
 pinned_capabilities/results/gate0e_predictions/predictions.json
+
+## 2026-07-16 10:20 — pre-outcome measurement note on the null predictor
+
+Written and committed while all gate curves are mid-flight (no gate
+aggregate exists). Verified from the sealed tables; no frozen rule changes.
+
+**1. The predictor is ill-conditioned at the precision the rule demands.**
+Near the crossing region, dR/d ln(eta) = 0.039-0.085 across the four
+scans, so the 1.5x match band requires radius precision 0.016-0.035.
+Observed instrument noise is the same size: seed 0's table is non-monotone
+at the bottom (1.0319 -> 1.0090 -> 1.0611), a dip of 0.023. The ratio
+checks therefore carry limited evidential weight IN EITHER DIRECTION: a
+hit or a miss at the 1.5-2x scale is within the instrument's noise band.
+
+**2. A uniform downward offset separates gate tables from dev.** The
+gate-seed mean radius sits below dev's at every rate (-0.024 to -0.094),
+which is what pushes every sealed prediction 1.76-2.38x above dev's
+observed eta50. Hypothesis: snapshot AGE. Dev's c* was calibrated on the
+legacy step-6,400 calibration snapshot; the gate states are step-8,000 by
+the frozen v1.4.1 recipe. More settling, lower local curvature, lower
+radius. Testable prediction: a seed-100 state prepared at step 8,000
+should show radii near the GATE tables, not near dev's 6,400 table. The
+test (dev-side, exploratory, protocol-neutral) is running now; its result
+will be appended below before any gate curve seals.
+
+**3. Outcome map under the frozen thresholds.** If the gate seeds' true
+boundaries match dev's (0.0067), the misses are 1.76x / 2.38x / 1.76x -
+only seed 1 exceeds 2x, so miss_count = 1 and the verdict is AMBIGUOUS,
+not null_loses. A null_loses verdict requires two seeds observed at or
+below roughly 0.0059 / 0.0080 / 0.0059. The frozen rule is thus buffered
+against the central artifact scenario, but a null_loses reached via ~2x
+misses would still ride partly on the offset and conditioning above, and
+will be reported with that caveat attached.
+
+**4. Gate 0-E is no longer a kill test, and we say so now.** With the
+discriminator non-discriminating, null_wins is unsatisfiable; the gate
+decides only null_loses versus ambiguous, through a channel whose
+resolution is comparable to its noise. Commitment, recorded pre-outcome:
+the ratio outcomes will be reported on their merits regardless of label -
+if the sealed predictions land inside 1.5x, that is a predictive success
+of the local theory and will be written as one, even though the frozen
+rule can only print "ambiguous". Gate 0-E's honest product is a
+methods-level result about a cheap checkpoint-local predictor; the
+project's weight rests on the reversibility phenomenology and Gate 1.
+
+**5. The diffusion slope (-1.93) is anomalous under both theories** (SGD
+noise predicts -1; batch-invariant Adam predicts ~0) and is flagged
+unreliable for any future temperature or Arrhenius use. Suspected
+mechanism: incomplete second-moment re-equilibration - the refresh length
+equals one beta_2 timescale (1,000 steps), so v is only ~63% adapted to
+the condition's batch size when diffusion is measured, inflating the
+apparent batch dependence. Verdict-irrelevant (the discriminator is
+already void), but it must be resolved before D enters any positive
+mechanism claim.
