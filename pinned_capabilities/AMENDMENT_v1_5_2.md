@@ -1,5 +1,12 @@
 # Amendment v1.5.2 — external-review adoptions (frozen before dev-curve unblinding)
 
+> **Correction notice (v1.5.3).** Two literature statements in section 1
+> below — that "Khanh" was retracted as fabricated and that "Feature
+> Lottery" could not be found — were factually wrong. Both papers are real
+> (arXiv:2607.06628 and arXiv:2605.24057) and were verified at the primary
+> source while still blind. See `AMENDMENT_v1_5_3.md` section 1. The text
+> below is preserved unedited as the record of the error.
+
 **Provenance.** An external adversarial review was received on 2026-07-15
 while the seed-100 dev escape curve was still executing. At the moment this
 amendment was written, 5 of 56 dev streams had completed, `curve.json` did

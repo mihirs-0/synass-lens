@@ -609,3 +609,22 @@ upgraded to an orthogonalized (eta_g, rho) design; the novelty sentence is
 narrowed and The Viscosity of Logic (arXiv:2601.17260) is recorded as
 verified prior art. Full audit and rules: `AMENDMENT_v1_5_2.md`. No dev,
 gate, batch, or lambda=0 outcome existed when this deviation was frozen.
+
+### 2026-07-15 — version 1.5.3, record corrections and discriminator hardening
+
+Two v1.5.2 literature statements were factually false and are corrected
+after primary-source verification, with the erroneous text preserved:
+Khanh (arXiv:2607.06628) is real including its section-8 moment ablation
+(0.34 versus 0.25 threshold gap, moments secondary), and Feature Lottery
+(arXiv:2605.24057) is real. The batch discriminator's statistic is upgraded
+from lag-zero update variance (renamed, demoted to proxy) to
+block-displacement diffusion D_L at L in {1,4,16,64} with ln D_64 as the
+decision statistic, jackknife SEs, a resampled slope interval that must lie
+wholly beyond +/-0.15 to declare a direction, and a 1.10x magnitude floor
+on the v-conditioned direction — uncertainty can only destroy decisiveness.
+Gate 1 gains the reset-at-theta_K persistence family, the one-way inference
+rule for the net-kick control, and the dual calibrated/common-rate analysis
+requirement. Affirmative-mechanism language is fixed at "Arrhenius-like"
+pending independent noise/drift variation. v1.5.3 closes the discretionary
+amendment window. Dev curve at 10/56 streams, no aggregate written, when
+frozen. Full text: `AMENDMENT_v1_5_3.md`.

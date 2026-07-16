@@ -164,3 +164,25 @@ queued-displacement and local-reconstruction controls of `AMENDMENT_v1_5_2.md`
 survive; the defensible headline is the process-level statement ("at identical
 weights, structured Adam state causally changes the long-horizon probability
 that a specific capability is expressed"), never static storage language.
+
+## Correction — 2026-07-15, v1.5.3 (still before any Gate 0-E or Gate 1 outcome)
+
+The addendum above contains an error, preserved unedited per record
+discipline: "Feature Lottery" IS real —
+[arXiv:2605.24057](https://arxiv.org/abs/2605.24057), *Feature Lottery? A
+Bifurcation Theory of Concept Emergence* (2026-05-22): representation onset
+as a supercritical pitchfork bifurcation, a label-free beta/beta_c phase
+coordinate spanning Pythia/CIFAR/modular grokking, and explicit early-warning
+use. It is adjacent prior art for Gate 3's early-warning ambitions as well as
+for grokking metastability. Likewise verified at the primary source (PDF):
+**Khanh**, [arXiv:2607.06628](https://arxiv.org/abs/2607.06628),
+*Cross-Trajectory Chimera Interventions Reveal Dissociable Roles of Weight
+Magnitude and Direction in Grokking* (2026-07-07). Its section 8 transplants
+Adam moments (reset/recipient/donor) around chimera interventions: the
+modular-addition threshold gap is 0.34 (reset) versus 0.25 (transplanted),
+per-pair shifts 0.03-0.04, moments "secondary, non-decisive." This is now the
+closest moment-transplant prior. Sharpened consequence: Gate 1's headline
+exists only if structured moments move the committor of a REVERSIBLE
+near-separatrix transition (where a secondary perturbation can change fate);
+a moments-secondary result here is a cross-regime extension of Khanh's
+negative and will be framed as such. See `AMENDMENT_v1_5_3.md`.
