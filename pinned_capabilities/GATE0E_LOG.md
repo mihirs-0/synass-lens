@@ -60,3 +60,29 @@ Artifacts (SHA-256):
 - `7d3c5d40c7f9fbc25ba45d9e54057cc60d86ec261d6a2084ac396d74b2ab5d00` pinned_capabilities/results/gate0e_dev_curve_seed100/curve.json
 - `203f7ec880d734038eec62da844e914140313cfc57761cbfdee131291dc47a92` pinned_capabilities/results/gate0e_dwell_audit_dev/audit.json
 - `8ebe040989ca7666a5c0883f2f2c4bed9bf2807430f17d551ffa74f685451869` pinned_capabilities/results/gate0e_null_seed100_b128/null_scan.json
+
+## 2026-07-16 09:45 — predictions frozen; discriminator NON-DISCRIMINATING
+
+c* = 1.0838 (dev radius at dev eta50). Out-of-sample null predictions,
+sealed before any gate stream: seed 0 -> eta50 0.0118, seed 1 -> 0.0160,
+seed 2 -> 0.0118 (all at B=128). Batch conditions: B=32 crossings at
+0.0037/0.0033 (seeds 0/1); B=512 right-censored (radius never reaches c*
+below 0.05).
+
+The measured update diffusion falls steeply with batch (pooled
+d ln D/d ln B = -1.93, 95% interval [-2.02, -1.85]) -> noise-theory
+direction UP. The v-conditioned crossings ALSO rise with batch, and the
+B=512 censoring voids the v-direction under the frozen rule. Status:
+**non_discriminating** -> per v1.5.2, null_wins is unsatisfiable. Gate 0-E
+now decides only between null_loses and ambiguous, via the seed ratio
+checks. Note the two theories' batch directions agree in sign here -
+exactly the degeneracy the external review predicted; the frozen machinery
+declared it rather than us.
+
+Context for the ratio checks: dev observed eta50 was 0.0067; the sealed
+gate predictions sit 1.8-2.4x above that. If gate seeds resemble dev, the
+null misses near or beyond the 2x line; if their boundaries genuinely sit
+higher, it hits the 1.5x band. Live either way.
+
+Artifact: `ede7474ae6f8ca17b94014698de757ace98ce8e2dc8a741e2df448415dcf17ea`
+pinned_capabilities/results/gate0e_predictions/predictions.json
