@@ -156,3 +156,43 @@ land dev-like near 0.0067). The measurement note's item 2 hypothesis is
 closed as refuted; item 1 (conditioning) stands. Artifact:
 results/gate0e_null_seed100_age8000/null_scan.json.
 - `ac46dcd6ca40d2c8eef1c2a9107b4b262851c6f51b64f34714a2f6b50ef39e76` pinned_capabilities/results/gate0e_null_seed100_age8000/null_scan.json
+
+## 2026-07-16 12:40 — figure-driven reinterpretation: no spontaneous return
+
+Plotting the 40 dev trajectories (loss vs steps) showed what the frozen
+labels cannot: EVERY fork at EVERY rate collapses to the input-blind floor
+at ~step 100, including eta=0.003 ("8/8 retained" = collapsed then fully
+re-learned). Nothing spontaneously came back: the fork knocks the model to
+the plateau and everything afterward is plateau-escape learning. Computed
+escape times (CE committed below 3.0): 0.003 -> {50, 1200-1550};
+0.005 -> {2800-3850, 5700}; 0.008 -> {5950, 10050, 15950} (3/8);
+>= 0.0125 -> none in 8/8 x 4 rates. Escape time grows with eta and goes
+infinite between 0.008 and 0.0125.
+
+DEAD, and recorded as such: pinned / held / latent / reversible /
+"optimizer-maintained suppression" / "spontaneous certified recovery."
+"Two collapsed models, different futures" survives only in the mundane
+reading (one rate is learnable, one is not). The scaffold requires a v3
+after the controls below.
+
+FAVORED HYPOTHESIS (legacy prior): the fork threshold is the task's
+maximum learnable rate. Legacy gate_rescue inverse runs - fresh models at
+eta=0.006 - sat at the plateau for 25,000 steps and learned only after
+dropping to 0.001; legacy near-boundary escape times diverged (~24k at
+K=10, eta=3e-3, old pipeline). Deciding controls, launched today:
+
+1. Fresh-init cell (new pipeline): seeds 300 at eta in {0.003, 0.005,
+   0.0125}, 25k steps. Fresh(0.0125) learning while forked(0.0125) never
+   escapes = post-fork state worse than random init (a real result).
+   Fresh matching forked escape times = full deflation to the MBC phase
+   diagram.
+2. Recovery races (running): forked-suppressed 16k states dropped to
+   0.001, against the fresh-init 0.001 reference band (3,300-4,700 steps)
+   - the same-rate comparison at the original training rate.
+3. Queued: forks at eta=0.001 (does the fork-shock collapse occur at the
+   training rate itself?).
+
+The Gate 0-E machinery, verdict, and wave are unchanged - the frozen
+pipeline measures what it measures; the INTERPRETATION of "erasure
+boundary" is now "maximum rate at which the post-fork plateau is
+escapable," pending the controls.
