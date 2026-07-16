@@ -592,3 +592,20 @@ tolerated. Descriptive eta50 shifts are still reported. The amendment's
 decision semantics (matches, opposite, CI-excluding rules) are unchanged. No
 batch cell, gate curve, or dev-curve statistic had been run or read; the dev
 escape curve was still executing with no aggregate written.
+
+### 2026-07-15 — version 1.5.2, external-review adoptions
+
+An external adversarial review (written against a secondhand brief, audited
+here against the actual implementation) was adopted while the dev curve was
+still running with no aggregate written: the SGD-temperature escape-side
+batch sketch is struck and replaced by a measured update-diffusion
+registration whose non-discriminating status makes `null_wins`
+unsatisfiable (a strict hardening of the stop rule); verdict claim language
+is demoted to predictor-failure rather than mechanism identification;
+queued-displacement, washout, effective-update, and local-reconstruction
+controls plus committor-difference estimands and per-weight-source
+calibration are registered for Gate 1; the weight-decay follow-up is
+upgraded to an orthogonalized (eta_g, rho) design; the novelty sentence is
+narrowed and The Viscosity of Logic (arXiv:2601.17260) is recorded as
+verified prior art. Full audit and rules: `AMENDMENT_v1_5_2.md`. No dev,
+gate, batch, or lambda=0 outcome existed when this deviation was frozen.

@@ -138,3 +138,29 @@ The paper promised to stakeholders is therefore not “we found a strange small
 model.” It is: **we identified when behavioral absence is a maintained training
 state, located the memory that maintains it, and used that knowledge to control
 what training learns.**
+
+## Addendum — 2026-07-15, v1.5.2 (before any Gate 0-E or Gate 1 outcome)
+
+An external adversarial review supplied additional prior art. Verified real:
+**The Viscosity of Logic** ([arXiv:2601.17260](https://arxiv.org/abs/2601.17260),
+2026-01-24) — capability-resolved probes under a swept DPO beta with explicit
+training-path hysteresis (high-beta exposure leaves persistent capability loss
+after beta is reduced). "Specific capability + training-path hysteresis" is
+therefore already in the literature; it does not fix weights or isolate
+optimizer moments. Searched twice and not found, recorded as unverified:
+"Feature Lottery" (claimed metastable feature acquisition in a one-layer
+AdamW transformer); re-search at write-up before citing or conceding to it.
+The program's novelty sentence is replaced by:
+
+> Prior work establishes optimizer-state-dependent continuation dynamics,
+> training-path hysteresis, and metastable feature acquisition separately.
+> The missing causal experiment is whether structured optimizer state, at
+> fixed weights, predicts the reversible fate of a specific latent capability
+> beyond effects attributable to step scale, queued updates, and local
+> preconditioning.
+
+Consequences: Outcome "moments shift fate" is claimable only after the
+queued-displacement and local-reconstruction controls of `AMENDMENT_v1_5_2.md`
+survive; the defensible headline is the process-level statement ("at identical
+weights, structured Adam state causally changes the long-horizon probability
+that a specific capability is expressed"), never static storage language.
