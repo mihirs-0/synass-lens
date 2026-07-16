@@ -27,6 +27,8 @@ from .gate0_analysis import (
     validate_scan_artifact,
 )
 from .gate0_autopsy import run_autopsy
+from .gate0e_control import write_positive_control
+from .gate0e_escape import GATE0E_GRID, GATE0E_STREAMS, run_escape_curve
 from .gate0_boundary import (
     geometric_erasure_bisection,
     run_acquisition_branch,
@@ -498,6 +500,40 @@ def main() -> None:
     gate0_autopsy.add_argument("--scan-dir", type=Path, required=True)
     gate0_autopsy.add_argument("--reference", type=Path, required=True)
     gate0_autopsy.add_argument("--output", type=Path, required=True)
+    gate0e_control = subparsers.add_parser(
+        "gate0e-control",
+        help="run the Gate 0-E noise-escape positive control",
+    )
+    gate0e_control.add_argument("--output", type=Path, required=True)
+    gate0e_curve = subparsers.add_parser(
+        "gate0e-curve",
+        help="run a Branch A escape curve from one expressed snapshot",
+    )
+    gate0e_curve.add_argument("--seed", type=int, required=True)
+    gate0e_curve.add_argument("--device", default="cpu")
+    gate0e_curve.add_argument("--snapshot", type=Path, required=True)
+    gate0e_curve.add_argument("--reference", type=Path, required=True)
+    gate0e_curve.add_argument("--autopsy", type=Path, required=True)
+    gate0e_curve.add_argument("--control", type=Path, required=True)
+    gate0e_curve.add_argument("--output", type=Path, required=True)
+    gate0e_curve.add_argument("--workers", type=int, default=1)
+    gate0e_curve.add_argument("--torch-threads", type=int, default=2)
+    gate0e_curve.add_argument("--streams", type=int, default=None)
+    gate0e_curve.add_argument("--weight-decay", type=float, default=None)
+    gate0e_curve.add_argument(
+        "--rates",
+        type=float,
+        nargs="*",
+        default=None,
+        help="override only for the single permitted half-shift or registered subsets",
+    )
+    gate0e_curve.add_argument(
+        "--predictions",
+        type=Path,
+        default=None,
+        help="committed gate-seed prediction artifact; required for official seeds",
+    )
+    _add_batch_size(gate0e_curve)
     memory = subparsers.add_parser(
         "memory-factorial", help="run matched-step weights x optimizer-state surgery"
     )
@@ -1031,6 +1067,106 @@ def main() -> None:
             "output": str(args.output),
         }
         print(json.dumps(summary, indent=2, sort_keys=True))
+    elif args.command == "gate0e-control":
+        report = write_positive_control(args.output)
+        print(
+            json.dumps(
+                {
+                    "passed": report["passed"],
+                    "arrhenius": report["arrhenius"],
+                    "predicted_arrhenius_slope": report["predicted_arrhenius_slope"],
+                    "arrhenius_slope_ratio": report["arrhenius_slope_ratio"],
+                    "monotonicity_flags": report["monotonicity_flags"],
+                    "fractions": {
+                        rate: cell["primary_fraction"]
+                        for rate, cell in report["cells"].items()
+                    },
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    elif args.command == "gate0e-curve":
+        autopsy_report = json.loads(args.autopsy.read_text())
+        if autopsy_report.get("kind") != "gate0_autopsy_v1_5":
+            raise ValueError("gate0e-curve requires the committed v1.5 autopsy artifact")
+        activation = autopsy_report["activation"]
+        if activation.get("primary_branch") != "A":
+            raise ValueError("Branch A is not active; gate0e-curve is not authorized")
+        control_report = json.loads(args.control.read_text())
+        if control_report.get("kind") != "gate0e_positive_control" or not control_report.get("passed"):
+            raise ValueError("gate0e-curve requires a passing positive-control artifact")
+        if args.seed in config.gate0.seeds and args.predictions is None:
+            raise ValueError(
+                "official gate seeds require the committed prediction artifact"
+            )
+        hold_steps = int(activation["t_hold_steps"])
+        grid = list(GATE0E_GRID)
+        if activation.get("grid_cap") is not None:
+            grid = [rate for rate in grid if rate <= float(activation["grid_cap"])]
+        if args.rates:
+            requested = sorted(float(rate) for rate in args.rates)
+            permitted = {round(rate, 12) for rate in grid} | {
+                round(rate * 0.5, 12) for rate in grid
+            }
+            if not all(round(rate, 12) in permitted for rate in requested):
+                raise ValueError(
+                    "requested rates must come from the frozen grid or its single half-shift"
+                )
+            grid = requested
+        streams = args.streams if args.streams is not None else GATE0E_STREAMS
+        bands = load_reference_bands(args.reference)
+        thresholds = StateThresholds(**asdict(config.state))
+        experiment_config = _runtime_experiment(config, args)
+        frozen = {
+            "kind": "gate0e_escape_curve",
+            "protocol_version": config.protocol_version,
+            "amendment": "v1.5.0",
+            "experiment": experiment_config,
+            "metric": config.metric,
+            "thresholds": thresholds,
+            "learning_rates": grid,
+            "streams_per_rate": streams,
+            "hold_steps": hold_steps,
+            "weight_decay_override": args.weight_decay,
+            "snapshot_input": _snapshot_input(args.snapshot, experiment_config),
+            "reference_input": _reference_input(args.reference),
+            "autopsy_input": bind_file(args.autopsy),
+            "control_input": bind_file(args.control),
+            "predictions_input": None
+            if args.predictions is None
+            else bind_file(args.predictions),
+        }
+        freeze_manifest(frozen, args.output / "manifest.json", repo=Path.cwd())
+        summary = run_escape_curve(
+            experiment_config,
+            config.metric,
+            bands,
+            args.snapshot,
+            args.output,
+            learning_rates=grid,
+            streams=streams,
+            hold_steps=hold_steps,
+            weight_decay_override=args.weight_decay,
+            thresholds=thresholds,
+            workers=args.workers,
+            torch_threads=args.torch_threads,
+        )
+        print(
+            json.dumps(
+                {
+                    "curve_valid": summary["statistics"]["curve_valid"],
+                    "eta50": summary["statistics"]["eta50"],
+                    "fractions": {
+                        str(cell["learning_rate"]): cell["primary_fraction"]
+                        for cell in summary["cells"]
+                    },
+                    "output": str(args.output),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
     elif args.command == "memory-factorial":
         bands = load_reference_bands(args.reference)
         thresholds = StateThresholds(**asdict(config.state))
