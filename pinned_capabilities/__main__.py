@@ -1205,7 +1205,11 @@ def main() -> None:
             "learning_rates": rates,
             "refresh_steps": REFRESH_STEPS,
             "refresh_rate": REFRESH_RATE,
-            "snapshot_input": _snapshot_input(args.snapshot, experiment_config),
+            "snapshot_input": _snapshot_input(
+                args.snapshot,
+                replace(experiment_config, batch_size=config.experiment.batch_size),
+            ),
+            "hold_batch_size": experiment_config.batch_size,
             "autopsy_input": bind_file(args.autopsy),
         }
         freeze_manifest(frozen, args.output / "manifest.json", repo=Path.cwd())
@@ -1362,7 +1366,11 @@ def main() -> None:
             "streams_per_rate": streams,
             "hold_steps": hold_steps,
             "weight_decay_override": args.weight_decay,
-            "snapshot_input": _snapshot_input(args.snapshot, experiment_config),
+            "snapshot_input": _snapshot_input(
+                args.snapshot,
+                replace(experiment_config, batch_size=config.experiment.batch_size),
+            ),
+            "hold_batch_size": experiment_config.batch_size,
             "reference_input": _reference_input(args.reference),
             "autopsy_input": bind_file(args.autopsy),
             "control_input": bind_file(args.control),

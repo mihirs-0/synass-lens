@@ -628,3 +628,15 @@ requirement. Affirmative-mechanism language is fixed at "Arrhenius-like"
 pending independent noise/drift variation. v1.5.3 closes the discretionary
 amendment window. Dev curve at 10/56 streams, no aggregate written, when
 frozen. Full text: `AMENDMENT_v1_5_3.md`.
+
+### 2026-07-16 — v1.5.3 defect repair 1: batch-cell snapshot binding
+
+Design note 3 freezes that batch cells start from the common batch-128
+expressed snapshot with only the hold's batch size differing, but the CLI
+bound snapshots against the runtime config including the batch override, so
+every registered batch condition was rejected at launch (observed on the
+first seed-0/32 and seed-0/512 null scans; no scientific output existed).
+The gate0e-null-scan and gate0e-curve dispatches now validate the snapshot
+against the preparation-batch config and record the hold batch size as its
+own manifest field. No threshold, label, grid, or decision rule changed;
+this makes the already-frozen design executable.
