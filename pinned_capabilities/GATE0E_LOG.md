@@ -289,3 +289,36 @@ trapping here - the plateau is a noise-maintained stationary distribution
 or nonlinearly re-attracted orbit, not a locally stable fixed point.
 Numbers only; mechanism deferred to the full-batch-from-stuck run (in
 flight: no escape through 350 steps, CE pinned at 3.580).
+
+## 2026-07-17 13:40 — RETRACTION: "round trips" recounted rigorously
+
+My 2026-07-17 interim claim ("~9 certified round trips, replicated on every
+seed") used a heuristic (outcome==erased AND final_c_int>8.3) that skipped
+the exact-match floor and conflated the near-expressed cluster with genuine
+re-expression. Recomputed via the frozen is_expressed and
+sustained_suppression_entry functions over 158 completed streams
+(dev + seeds 0/1/2), figure results/figures/roundtrip_candidates.png:
+
+- 115 streams reached CERTIFIED suppression (2000-step joint in-band window).
+- Of those, streams returning to full expressed (C_int>=8.33 AND EM>=0.90
+  AND dz>0) after the window: **3** — dev/0.005/s03, s1/0.003/s01,
+  s1/0.003/s06. Seeds 0 and 2: ZERO.
+- 8 near-expressed (C_int/loss recover, EM stalls 0.18-0.88, never re-solve).
+- 104 permanent.
+
+The plots show the mechanism: gray (info) and blue (C_int) lead, orange
+(EM) lags and usually stalls below 0.90. Recovery is a slow sigmoidal
+learning curve over thousands of steps, NOT a switch. Of the 3 that reach
+EM>=0.90: s1/0.003 pair re-solve to 0.94-0.99 but flicker at a noisy
+near-boundary operating point (strict all-rows-final-1000 sustained =
+False); dev only grazes 0.90 at step ~15000, final EM 0.81.
+
+Conclusion (corrects the interim, strengthens the deflation): no distinct
+"spontaneous return." The return leg IS re-learning - graded, behavior-last,
+completing to full re-solve in 3/158 streams. "Certified round trip" as a
+headline phenomenon does not survive. PAPER_SCAFFOLD §4.3 ("recovery is
+rate-dependent", "certified round trip") requires rewrite to: below the
+permanence boundary the collapsed model RE-LEARNS; full behavioral
+re-solving within 16k steps is rare and seed-specific; the common
+sub-boundary behavior is partial (info+interaction) recovery without EM
+re-solving.
