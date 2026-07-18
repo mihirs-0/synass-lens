@@ -40,12 +40,17 @@ input-blind manifold.
    escape, C_int exactly 0, zero movement). Full censoring-to-3,500 for all
    A3 streams is pending (run in progress); at step 1,400 there is no hint of
    escape in any A3 stream.
-2. **Covariance vs magnitude is NOT yet resolved.** A4 (isotropic
-   matched-norm) is also trapped so far, so magnitude alone may suffice
-   (pre-reg: "A3 traps AND A4 traps -> magnitude may suffice"). But A4 shows
-   slight perturbation (CE 3.51, C_int 0.05) where A3 is dead flat (CE 3.585,
-   C_int 0.00), a hint that empirical covariance traps harder. Definitive
-   resolution needs A4 to run to 3,500 (does it eventually escape?).
+2. **Covariance vs magnitude — RESOLVED (2026-07-18 17:47, A4 at step
+   3,250/3,500): magnitude suffices.** Both A4 streams stayed TRAPPED through
+   ~step 3,250 (2,350 steps past A1's escape; CE 3.40-3.46, C_int 0.07-0.17),
+   never escaping, while A1 fully re-solved (CE 0.61, C_int 13.8). So
+   isotropic noise of matched norm alone prevents escape — the specific
+   minibatch covariance structure is NOT required for trapping (pre-reg:
+   "A3 traps AND A4 traps -> magnitude may matter more than covariance").
+   Refinement: empirical covariance traps TIGHTER — A3 stayed dead-flat
+   (C_int 0.00, CE 3.585) while A4 drifted loosely (C_int 0.17, CE 3.40).
+   So: any noise of sufficient magnitude maintains the plateau; minibatch
+   covariance makes the trap firmer but is not necessary.
 3. **A5 (Adam-reset control) has not run.** Whether the trap is
    noise-alone or noise-plus-optimizer-memory is open. Registered follow-up.
 4. n=1 collapsed checkpoint. Replication across collapsed seeds is a
