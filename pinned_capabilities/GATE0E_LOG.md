@@ -339,3 +339,33 @@ modulates the boundary near threshold (at 0.005, removing it drops collapse
 4/8 -> 1/4 and delays the survivor to tau 13,650). Retires kill-criterion 2
 in the good direction. Caveat: n=4 (wd0) vs n=8 (default), so the
 boundary-rate contrast is noisy; the high-rate 100%-vs-100% is clean.
+
+## 2026-07-18 08:40 — WAVE SEALED (Level 2 complete): seed-stable collapse boundary
+
+3-seed collapse curves (erased/8; +Nd = diverged, excluded):
+  eta    seed0     seed1     seed2    mean P(collapse)
+  0.003  2/8       2/8       1/8      0.21
+  0.005  7/8       4/8       6/8      0.71
+  0.008  8/8       8/8       8/8      1.00
+  0.0125 8/8       8/8       8/8      1.00
+  0.02   6/8+2d    5/8+3d    6/8+2d   0.71
+  0.032  8/8       8/8       8/8      1.00
+  0.05   1/8+7d    4/8+4d    4/8+4d   0.38
+
+eta50 per seed (sealed, valid, monotone): 0.00359 / 0.00432 / 0.00413
+(tight; CV ~9%). Collapse is a WINDOW: below ~0.004 the model re-learns
+(permanence boundary); 0.008-0.032 gives ~100% clean collapse-to-marginal;
+0.05 mostly DIVERGES (7/8, 4/8, 4/8) rather than collapsing. The dip at
+0.02/0.05 in P(collapse) is divergence, not survival.
+
+Level-2 verdicts:
+- Collapse replicates across 3 independently trained checkpoints; eta50
+  seed-stable at ~0.004. Kill-criterion 5 (checkpoint-specific) RETIRED good.
+- Gate 0-E null (VESTIGIAL under reframe): observed eta50 ~0.004 vs sealed
+  predictions 0.0118/0.0160/0.0118 -> misses by 3.3x/3.7x/2.9x, all >2x, on
+  all 3 seeds. null_loses (and the batch discriminator was already
+  non-discriminating, so null_wins was unsatisfiable). Reported as "a cheap
+  checkpoint-local predictor failed out of sample," not a mechanism.
+
+Level-2 map is done. Mechanism (Level 3) is the matched-noise experiment,
+now running.
