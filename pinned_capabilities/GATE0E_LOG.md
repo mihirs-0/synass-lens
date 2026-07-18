@@ -322,3 +322,20 @@ permanence boundary the collapsed model RE-LEARNS; full behavioral
 re-solving within 16k steps is rare and seed-specific; the common
 sub-boundary behavior is partial (info+interaction) recovery without EM
 re-solving.
+
+## 2026-07-18 01:15 — lambda=0 cell sealed: collapse is NOT weight-decay-driven
+
+Seed 1, four middle rates, 4 streams each, weight_decay=0:
+  eta=0.005: 1/4 erased (medtau 13,650 - very late)
+  eta=0.008: 4/4 erased (medtau 200)
+  eta=0.0125: 4/4 erased (medtau 150)
+  eta=0.02:  4/4 erased (medtau 300)
+vs seed-1 default wd=0.01: 0.005 4/8, 0.008 8/8, 0.0125 8/8, 0.02 5/8.
+
+Reading (Level 2): collapse occurs at 100% with ZERO weight decay for
+eta in {0.008, 0.0125, 0.02}, so the phenomenon is not a reparametrized
+L2/Ersoy weight-decay metastability - it survives lambda=0. Weight decay
+modulates the boundary near threshold (at 0.005, removing it drops collapse
+4/8 -> 1/4 and delays the survivor to tau 13,650). Retires kill-criterion 2
+in the good direction. Caveat: n=4 (wd0) vs n=8 (default), so the
+boundary-rate contrast is noisy; the high-rate 100%-vs-100% is clean.
