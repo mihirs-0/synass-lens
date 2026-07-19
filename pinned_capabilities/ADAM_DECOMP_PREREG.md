@@ -75,3 +75,21 @@ magnitude-confounded, not clean channel attribution.
 V(4) + M(4). Wave 2: N_BC(4) after C0 step 900 (v_min). Wave 3: P_AR(4)
 after N completes (residual schedule). Validity gate: C0 must reacquire, N
 must trap, or the decomposition is void.
+
+## Deviation 2026-07-18 23:48 (compute-driven, before any outcome)
+
+The 13-stream launch thrashed on memory bandwidth (~36 s/step/stream, one
+hung stream) and projected to ~2.4 days at T=3500. Two compute-driven
+changes, made before any escape/trap outcome was readable (all streams at
+step 100-150, dead-flat at the floor):
+1. **T reduced 3500 -> 2000.** C0 escapes ~step 900; the registered escape
+   criterion certifies at ~1400; 2000 leaves 1100 steps of censoring past
+   C0's escape (the matched-noise arms showed zero slow-escape through 3500).
+   The extension rule still applies: any escape with tau >= 0.8T=1600 extends
+   that arm to 2T=4000. Scientifically ample to distinguish escape from trap.
+2. **Dependency-aware queue at 6 concurrent** (bandwidth sweet spot, 1 thread
+   each) replaces the 13-stream oversubscription. Same total throughput
+   (bandwidth-capped) but no thrashing, no hangs, and dependencies resolve as
+   streams complete. Principal-first order: C0+N -> N_BC (v_min gate) ->
+   V,M -> P_AR (N-done gate).
+No thresholds, arm rules, sigma, or outcome map changed.
