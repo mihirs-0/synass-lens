@@ -93,3 +93,32 @@ step 100-150, dead-flat at the floor):
    streams complete. Principal-first order: C0+N -> N_BC (v_min gate) ->
    V,M -> P_AR (N-done gate).
 No thresholds, arm rules, sigma, or outcome map changed.
+
+## Deviation 2026-07-19 11:50 (validity-gate failure, before any outcome)
+
+**Constant sigma -> per-step matched isotropic noise.** The frozen constant
+sigma=6.096e-5 arm FAILED the pre-registered validity gate ("N with this sigma
+must reproduce trapping"). The N streams held the floor only ~450 steps, then
+drifted off and reached full_vocab_ce < 3.0 by ~step 1000 (escaping, following
+C0). Root cause: a *fixed* noise magnitude cannot maintain the trap once the
+model drifts, because minibatch noise scales with gradient magnitude and the
+gradient grows as the state leaves the marginal; the certified bar-A result
+(MATCHED_NOISE_RESULTS.md) re-matched the noise norm to ||(g_B1-g_B2)/sqrt2||
+*every step*, which the frozen-constant simplification dropped. Per the prereg,
+"N must trap, or the decomposition is void" — so the constant-sigma run is void
+by the prereg's own rule, and restoring the certified per-step recipe is the
+mandated fix, not a tuning choice.
+
+Change (harness only): xi_t = ||(g_B1-g_B2)/sqrt2|| * eps_t/||eps_t|| (isotropic,
+matched per step); the per-step variance sig2_t = ||xi_t||^2 / d is what N_BC now
+subtracts for its v-bias correction, so E[(g+xi)^2 - sig2_t] = g^2 stays unbiased
+per step (the unit-test logic holds per-step; the beta2=0.999 EMA still smooths
+the residual variance). Made before ANY channel-attribution outcome was read
+(N/N_BC/V/M/P_AR verdicts all unread; this fixes the N-trap validity gate only).
+
+Validity re-confirmed before relaunch: a standalone matched-sigma N stream held
+full_vocab_ce = 3.56 (the ln36 floor), dead flat, from step 50 through step 500 —
+past the constant-sigma drift onset. TRAP. Arm rules (m/v routing), theta update,
+Gamma accounting, escape criterion, outcome map, and T=2000 all unchanged.
+Replication cut 4 -> 2 streams/arm (compute; split-cell +streams rule still
+applies). C0 (deterministic, noise-free) was unaffected and kept running.

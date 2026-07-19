@@ -77,7 +77,17 @@ def flat_dot(a, b):
 def run():
     exp, params, m, v, t0 = build()
     n = len(exp.dataset)
+    D = sum(p.numel() for p in params)
     chunks = [collate_fn([exp.dataset[i] for i in range(s, s + CHUNK)]) for s in range(0, n, CHUNK)]
+    mbgen = torch.Generator().manual_seed(500_000 + 991 * sum(ord(c) for c in ARM) + STREAM)
+
+    def mb_grad():
+        idx = torch.randint(n, (128,), generator=mbgen)
+        batch = collate_fn([exp.dataset[int(i)] for i in idx])
+        exp.optimizer.zero_grad(set_to_none=True)
+        loss, _, _ = compute_loss(exp.model, batch)
+        loss.backward()
+        return [p.grad.detach().clone() for p in params]
     m_sh = [x.clone() for x in m]
     v_sh = [x.clone() for x in v]
     v_min = None
@@ -106,12 +116,18 @@ def run():
         u_sh = bias_corrected_update(m_sh, v_sh, t_eff)
 
         if ARM != "C0" and ARM != "P_AR":
-            xi = [SIGMA * torch.randn(p.shape, generator=egen) for p in params]
+            # per-step MATCHED isotropic noise (certified recipe): ||xi|| = ||(g_B1-g_B2)/sqrt2||
+            ref = [(a - b) / math.sqrt(2) for a, b in zip(mb_grad(), mb_grad())]
+            ref_norm = flat_norm(ref)
+            iso = [torch.randn(p.shape, generator=egen) for p in params]
+            scale = ref_norm / (flat_norm(iso) + 1e-30)
+            xi = [scale * e for e in iso]
+            sig2 = ref_norm * ref_norm / D  # per-coordinate variance of xi this step
             gpx = [a + b for a, b in zip(g, xi)]
             if ARM == "N":
                 g_m, v_inc = gpx, [x * x for x in gpx]
             elif ARM == "N_BC":
-                g_m, v_inc = gpx, [x * x - SIGMA * SIGMA for x in gpx]
+                g_m, v_inc = gpx, [x * x - sig2 for x in gpx]
             elif ARM == "V":
                 g_m, v_inc = g, [x * x for x in gpx]
             elif ARM == "M":
