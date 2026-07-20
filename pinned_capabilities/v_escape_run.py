@@ -39,6 +39,7 @@ LR, WD, B1, B2, EPS = 0.0125, 0.01, 0.9, 0.999, 1e-8
 CE_EVERY, ACC_EVERY, ACC_EVERY_NEAR, CKPT_EVERY, CHUNK = 200, 1000, 100, 1000, 2500
 NEAR_CE = 2.5          # tighten accuracy cadence once CE dips below this
 ONSET_CE, ONSET_SUSTAIN = 3.0, 500
+ONSET_TAIL = 200          # stop this many steps after tau_onset confirms (fast iteration)
 REPO = Path("/Users/mihir/synass-lens/synass-lens")
 COLLAPSED = REPO / "pinned_capabilities/results/gate0e_dev_curve_seed100/eta_0p0125/stream_00/checkpoints/slot_0.pt"
 OUT = REPO / f"pinned_capabilities/results/v_escape/s{S_SCALE:.2f}_seed{SEED}"
@@ -185,6 +186,10 @@ def run():
                     if cj < ONSET_CE and all(ck < ONSET_CE for sk, ck in ce_hist[j:] if sk <= sj + ONSET_SUSTAIN) \
                        and ce_hist[-1][0] >= sj + ONSET_SUSTAIN:
                         tau_onset = sj; break
+                if tau_onset is not None:
+                    # onset captured (the trend-fit metric). Escape is oscillatory
+                    # (kick-backs); solve is noise-dominated -> fast-stop, don't chase it.
+                    stop_at = min(CAP, step + ONSET_TAIL)
         if step % acc_now == 0:
             acc = retrieval_acc(exp, chunks)
             row["exact_acc"] = acc

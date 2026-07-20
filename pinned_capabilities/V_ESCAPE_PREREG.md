@@ -70,3 +70,18 @@ s=0.25 escaped (tau_onset=3400) and reached CE 0.003 / 99.9% retrieval by ~step
 burning compute on that tail. Does NOT affect tau_onset (the metric the trend
 fit consumes) — only the secondary tau_solve endpoint and when a run early-stops.
 s=0.25 sealed from data: tau_onset=3400, tau_solve(>=99.9%)=4500.
+
+## Judgment 2026-07-20 (fast iteration): stop at tau_onset + 200, escape is OSCILLATORY
+Inspecting s=0.25's escape: it is NOT a monotonic climb. Retrieval oscillates
+with kick-backs before stabilizing:
+  step 3100: CE 0.69 / 80% -> 3200: CE 4.32 / 5.7% (KICKED BACK to floor)
+  step 3600: CE 0.20 / 94% -> 3700: CE 2.59 / 11.5% (kicked back)
+  step 3900: CE 0.05 / 98.9% -> 4000: CE 2.37 / 13% (kicked back) -> 4100+ stabilizes
+The "last 0.9%" (99% -> 99.9%) cost ~400-600 steps, half of it a kick-back, not
+learning -- i.e. noise-jitter on a few keys, not signal. So tau_solve is
+noise-dominated and not worth chasing. Policy: each run STOPS at tau_onset + 200
+(ONSET_TAIL). tau_onset (the log-tau_onset fit metric) is fully captured by then;
+solve is reported only as whatever was reached at stop, not pursued. This is the
+fast-iteration win: an oscillating run no longer burns to its cap.
+Separately, the kick-back pattern is itself the audit's Phase-2 F4 answer for the
+V arm: KICK-BACK (noise spikes knock the model back), not freezing.
