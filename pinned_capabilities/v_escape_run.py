@@ -81,6 +81,26 @@ def flat_norm(lst):
     return math.sqrt(sum(float(x.pow(2).sum()) for x in lst))
 
 
+def ce_full(exp, chunks):
+    # FIRST-target-token full-vocab CE over ALL 10k keys (device-resident;
+    # avoids the CPU probe-tensor path in exp.evaluate that breaks on MPS).
+    # Matches the registered probe full_vocab_ce (first_token_only) -> ln36 at
+    # collapse; validated == 3.585 at the collapsed state.
+    exp.model.eval()
+    tot = 0.0; nex = 0
+    with torch.no_grad():
+        for b in chunks:
+            logits = exp.model(b["input_ids"])
+            sl = logits[:, :-1]
+            st = b["labels"][:, 1:]
+            fi = (st != -100).float().argmax(dim=1)       # first target position per key
+            ar = torch.arange(st.size(0), device=st.device)
+            ce = torch.nn.functional.cross_entropy(sl[ar, fi], st[ar, fi], reduction="sum")
+            tot += float(ce); nex += st.size(0)
+    exp.model.train()
+    return tot / nex
+
+
 def retrieval_acc(exp, chunks):
     exp.model.eval()
     correct = total = 0
@@ -154,8 +174,7 @@ def run():
         near = ce_hist and ce_hist[-1][1] < NEAR_CE
         acc_now = ACC_EVERY_NEAR if near else ACC_EVERY
         if step % CE_EVERY == 0 or step % acc_now == 0:
-            ev = exp.evaluate()
-            ce = ev["full_vocab_ce"]
+            ce = ce_full(exp, chunks)
             row["full_vocab_ce"] = ce
             ce_hist.append((step, ce))
             # tau_onset: CE<3.0 sustained >=500 steps

@@ -53,3 +53,12 @@ bandwidth-bound). MPS 1.72 s but HookedTransformer forward has a CPU-index
 device bug -> runs on CPU. Two runs concurrent (s=0.25, s=0.50) ~6-7 s/step
 each. Projected per run (escape-expected / cap-bound): s=0.25 ~3-6h / ~14h;
 s=0.50 ~6-11h / ~18h; s=0.75 ~11-16h / ~22h. Detached, resumable.
+
+## Refinement 2026-07-20 (pre-outcome): MPS + first-token CE readout
+exp.evaluate() (probe-based full_vocab_ce) indexes CPU probe tensors against
+MPS logits and fails on MPS (metrics.py:104, answer_token_ids[q.b,q.z]). Replaced
+the CE readout with ce_full(): FIRST-target-token full-vocab CE over ALL 10,000
+keys, device-resident. Validated == probe full_vocab_ce at collapse (3.5851 vs
+3.5848, both cpu & mps); more faithful (full population vs probe sample). Enables
+MPS (full-grad 1.72s vs 4.68s CPU). Runs now on MPS serially. No endpoint,
+threshold, seed, or arm-recipe change.
