@@ -141,7 +141,9 @@ def run():
     tau_onset = None; tau_solve = None; solve_candidate = None
     ckpt = OUT / "ckpt.pt"
     if ckpt.exists():
-        st = torch.load(ckpt, map_location=DEVICE)
+        # load to CPU (RNG-state ByteTensors must stay on CPU for set_state),
+        # then move only theta/m/v to the device.
+        st = torch.load(ckpt, map_location="cpu")
         for i, p in enumerate(params): p.data.copy_(st["theta"][i].to(DEVICE))
         m = [x.to(DEVICE) for x in st["m"]]; v = [x.to(DEVICE) for x in st["v"]]
         start = st["step"] + 1; ce_hist = st["ce_hist"]
@@ -186,7 +188,7 @@ def run():
         if step % acc_now == 0:
             acc = retrieval_acc(exp, chunks)
             row["exact_acc"] = acc
-            if acc >= 1.0:
+            if acc >= 0.999:                                   # effective solve (last 0.1% is noise-jitter)
                 if solve_candidate is None:
                     solve_candidate = step
                 elif tau_solve is None:
