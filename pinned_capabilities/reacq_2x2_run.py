@@ -35,7 +35,7 @@ CAP = int(sys.argv[4])
 DEVICE = sys.argv[5] if len(sys.argv) > 5 else "cpu"
 torch.set_num_threads(int(sys.argv[6]) if len(sys.argv) > 6 else 4)
 SCALE = float(sys.argv[7]) if len(sys.argv) > 7 else 1.0   # noise dose: c (N_PM) or s (M_T); 1.0 for C0/V/N
-assert ARM in ("C0", "V", "N", "N_PM", "M_T") and INIT in ("collapsed", "fresh")
+assert ARM in ("C0", "V", "N", "N_PM", "M_T") and INIT in ("collapsed", "fresh", "fresh_orig")
 
 from pinned_capabilities.config import ProtocolConfig
 from pinned_capabilities.experiment import MBCExperiment
@@ -76,7 +76,14 @@ def build():
         step0 = St[params[0]]["step"]
         t0 = int(step0.item()) if torch.is_tensor(step0) else int(step0)
     else:  # fresh random init, empty optimizer state
-        exp = MBCExperiment(replace(cfg.experiment, seed=FRESH_MODEL_SEED, device="cpu"), cfg.metric)
+        # fresh: model+table both at FRESH_MODEL_SEED (sibling table).
+        # fresh_orig: fresh model at a NEW seed, trained on the collapsed model's
+        #   ORIGINAL seed-100 table (removes the table confound; item 2 replication).
+        model_seed = FRESH_MODEL_SEED + SEED if INIT == "fresh_orig" else FRESH_MODEL_SEED
+        exp = MBCExperiment(replace(cfg.experiment, seed=model_seed, device="cpu"), cfg.metric)
+        if INIT == "fresh_orig":
+            table_exp = MBCExperiment(replace(cfg.experiment, seed=COLLAPSED_SEED, device="cpu"), cfg.metric)
+            exp.dataset = table_exp.dataset            # swap in the original (seed-100) table
         if DEVICE != "cpu": exp.model.to(DEVICE)
         params = [p for grp in exp.optimizer.param_groups for p in grp["params"]]
         m = [torch.zeros_like(p).float() for p in params]

@@ -5,8 +5,22 @@ Frozen BEFORE any full run. Closes two defects an external review found in the
 arm N carries ~2x the realized update-noise power of v-only V (Gamma 1.97 vs
 0.98) -> trapping might be power, not routing; (2) the m-only arm M diverged ->
 the interaction rests on one controlled arm and one crash. Two new arms, then
-the experimental phase closes permanently (stop rule below). Everything already
-queued (N1, N2, fresh 2x2, s=1.0 resume) stays unchanged; this only ADDS runs.
+the experimental phase closes permanently (stop rule below).
+
+## Revision 2026-07-21 (stop rule + total run count UNCHANGED)
+1. **Reorder after N1** (do not preempt N1): resume -> 7 pilots -> freeze commit
+   (c, s*) -> N_PM x2 -> M_T x2 -> V_fresh replication. Short/decision-relevant
+   before 16k marathons; resume protects the 4,600 sustained-escape anchor;
+   pilots gate the confound-killers.
+2. **N2 CANCELLED, replaced by a V_fresh replication on the ORIGINAL table.**
+   The full-noise censor was seen twice (N0 + old real-minibatch); a third is
+   redundant. The fragile cell is fresh+noise=4,000 (n=1, on a seed-300 sibling
+   table). New run: INIT=fresh_orig (fresh random model, new seed, on the
+   collapsed model's seed-100 table), V arm, s=1.0, eta=0.0125, 10k cap, frozen
+   criteria. Removes the table confound and de-risks the thesis cell at once.
+   (Net run count: -N2 +V_fresh_repl = 0.)
+3. M_T selector -> Gamma-band match (see M_T section).
+4. 2x2 writeup language registered: REACQ_2X2_WRITEUP_LANGUAGE.md.
 
 Harness `reacq_2x2_run.py` extended (arms N_PM, M_T; SCALE dose; mandatory Gamma
 accounting via pathwise clean shadow moments, sealed definition
@@ -45,12 +59,20 @@ Pre-committed readings:
 
 ## Arm M_T — tamed m-only dose ladder
 Construction: m <- g + s·xi ; v <- clean g^2 (unchanged from M spec). SCALE=s.
-Stability probes (pilot): single-stream 2,000-step probes at s in {0.1,0.25,0.5}.
-Divergence (registered): CE>8.0 any eval, any NaN/Inf in params/moments, or
-update norm >100x clean-arm median at same step index. Select s* = largest probed
-s completing 2,000 steps without triggering. If all diverge, add s=0.05 once; if
-that diverges, report "no stable m-only dose >=0.05" and close the arm.
-FROZEN s* = <PENDING PILOT>.
+Stability probes (pilot): single-stream 2,000-step probes at
+**s in {0.02, 0.05, 0.1, 0.25}** (0.5 dropped — smoke test Gamma~6e4 at s=0.25
+already rules it out). Divergence (registered): CE>8.0 any eval, any NaN/Inf in
+params/moments, or update norm >100x clean-arm median at same step index.
+**AMENDED SELECTOR 2026-07-21 (prompted by the smoke test: clean v amplifies even
+small s into huge realized Gamma; "largest stable dose" would run at a
+magnitude-confounded power the gate cannot interpret — the fate of the old
+parameter-noise arm).** Divergence is a CONSTRAINT (must complete 2,000 steps),
+not the selector. Select s* = the STABLE dose whose windowed-median realized
+Gamma (steps 100-500, Gamma_median_100_500) falls in [0.85, 1.15] — the SAME band
+as N_PM, making V / N_PM / M_T a like-for-like triple (one shaking power, three
+routings). If no dose is both stable and in-band, CLOSE the arm and report
+"no stable in-band m-only dose exists" as the arm's finding (a publishable
+property of the channel, not a failure). FROZEN s* = <PENDING PILOT>.
 Full runs: 2 seeds at s*, 16k cap. Report realized Gamma prominently (clean small
 v -> even small s can realize large Gamma; Gamma makes this comparable).
 Pre-committed readings:
