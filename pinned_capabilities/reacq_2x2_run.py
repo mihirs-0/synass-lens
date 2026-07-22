@@ -52,7 +52,7 @@ FRESH_MODEL_SEED = 300           # fresh init: same weights+table for its clean 
 COLLAPSED_SEED = 100
 REPO = Path("/Users/mihir/synass-lens/synass-lens")
 COLLAPSED = REPO / "pinned_capabilities/results/gate0e_dev_curve_seed100/eta_0p0125/stream_00/checkpoints/slot_0.pt"
-_TAG = f"_sc{SCALE:.2f}" if ARM in ("N_PM", "M_T") else ""   # dose in dir name for pilots/full
+_TAG = f"_sc{SCALE:.2f}" if (ARM in ("N_PM", "M_T") or SCALE != 1.0) else ""   # dose in dir name (incl V pinning pilots s!=1)
 OUT = REPO / f"pinned_capabilities/results/reacq_2x2/{ARM}_{INIT}_seed{SEED}{_TAG}"
 
 
