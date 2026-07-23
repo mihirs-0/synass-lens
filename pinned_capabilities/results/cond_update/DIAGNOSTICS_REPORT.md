@@ -89,3 +89,62 @@ v-only + matched both-channel states. V⊥ magnitude precision-robust but its
 concentration (few ε-limited coords vs broad) is a Phase-2/3 follow-up. Noise =
 matched isotropic ξ (registered arms' actual noise); real-minibatch anisotropic
 variant not yet run.
+
+---
+
+# Trajectory phases (1D / 2 / 3) — 2026-07-23
+
+Dense checkpoints from `results/traj/` (runner `reacq_traj_run.py`, commit ff64969;
+analysis `traj_analysis.py`). All arms from the collapsed fork, shared noise (CRN),
+MPS. Escape times shifted on MPS vs the CPU decomposition (clean onset 1,600 not
+~800; V onset 3,800) — the metastable escape is float-sensitive; the arms are
+internally consistent (same harness+CRN), so the RELATIVE comparison is valid.
+
+## Phase 1D — a stable clean escape direction exists
+Pre-onset clean directions e_k=(θ_tk−θ0)/‖·‖ (steps 1,250–1,600) have pairwise
+cosine median **0.970** (min 0.902). A stable escape direction e is well-defined
+WITHIN the clean arm. (Caveat below: it does not generalize to v-only.)
+
+## Phase 2 — diffusion-control CONFIRMED along the v-only trajectory (robust)
+Conditional update (K=256, paired) at v-only states:
+| state | μ∥ v-only | μ∥ both | V⊥ ratio both/v |
+|---|---|---|---|
+| fork | 0.498 | 0.502 | 39,000x |
+| V step 1,000 | 0.375 | **0.375** | **4.3e6 x** |
+| V step 3,700 (pre-onset) | 0.223 | **0.223** | **5.3e7 x** |
+**At every state the escape-direction drift is IDENTICAL (μ∥ matches to 3 d.p.),
+while the both-channel transverse diffusion is millions-fold larger and GROWS
+toward onset.** The fork result is not a special point — drift-comparable,
+diffusion-dominated holds all along the recovery. This is the strong, clean result.
+
+## Phase 3 — s_t / P_T: trapped arms build NO escape-direction progress
+Projection of −g onto e, and cumulative projected movement P_T:
+- **Trapped arms flat:** N s_t ∈ [−0.0002, 0.0003], N_PM ∈ [−0.0008, 0.0007];
+  P_T(N)=4.6, P_T(N_PM)=6.0. No escape-direction gradient buildup.
+- **Clean amplifies (along its own e):** s_t grows 0.0000→0.0034 approaching onset;
+  P_T(clean)=**741**.
+- **v-only escapes along a DIFFERENT direction:** P_T(v-only) on the clean e is
+  only **9.9** (~2x the trapped arms), and its s_t on e is noisy — v-only recovers
+  nearly orthogonal to clean. So the single clean-held-out e cleanly separates
+  clean-vs-trapped but does NOT capture v-only (Phase-1D caution realized).
+
+## Mechanism-class read (not a unique identification)
+The recovery separation is **diffusion-controlled, not drift-controlled** — Phase 2
+shows identical escape drift with millions-fold transverse diffusion at every
+state. Phase 3 shows the trapped arms accumulate no escape-direction progress
+(flat s_t, small P_T), consistent with **first-passage / diffusion control** (the
+transverse scatter prevents the state from committing to an escape direction),
+rather than a drift-magnitude/amplification deficit. The clean arm's own s_t
+growth is amplification along its direction, but v-only escapes along a different
+axis, so a single held-out direction does not adjudicate amplification-vs-first-
+passage for the noisy arms. Per pre-registration this is discrimination between
+mechanism CLASSES, not a unique mechanism.
+
+## Registered language after the trajectory phases
+- **Strengthened:** "diffusion-controlled, not drift-controlled" — now shown at
+  multiple states (μ∥ identical, V⊥ ratio 4e6–5e7x), not just the fork.
+- **Sharpened:** the trap = trapped arms build no escape-direction progress
+  (flat s_t, small P_T) despite identical drift; the transverse m-scatter is what
+  denies first passage.
+- **Bounded honestly:** amplification-vs-first-passage is NOT uniquely resolved
+  for the v-only arm (escapes off the clean axis); leaning first-passage/diffusion.
