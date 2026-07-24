@@ -1,0 +1,17 @@
+\section{Limitations and corrections}
+\label{sec:limits}
+
+\paragraph{Finite horizons.}
+Every non-escape is right-censored, not a claim escape cannot occur: both-channel arms did not re-solve within $16{,}000$ steps (both seeds), so ${\geq}16{,}000$ bounds escape time below and the ${\geq}20\times$ gap from the ${\sim}800$-step clean re-solve is likewise a lower bound (Fig.~\ref{fig:fork}). Absolute times are device/precision-sensitive (slower on MPS, near a float boundary); we quote steps under one harness.
+
+\paragraph{One system, one rate.}
+One task, architecture, and rate ($2\times2$ reacquisition at $\eta=0.0125$, single seed per cell and dose; only fork censoring replicated, $n=2$). We read the noise column as \emph{advantage eliminated (possibly inverted)}, weighting equally its two readings---targeted erasure of the trained head start, and a common onset floor both start states reach---without headlining inversion (Fig.~\ref{fig:twobytwo}). What exports is \emph{structure}---routing pins realized update-space power, dissociating drift from diffusion, denying reacquisition at intact drift---not the multipliers ($\times39{,}000$ diffusion ratio, $4$--$7$ orders along the trajectory, ${\geq}20\times$ slowdown, $\gam$ levels). Reduced-amplitude both-channel noise ($\gam\approx1.86$) is still censored: the trap tracks pinned felt-noise, not the injected dial (Fig.~\ref{fig:pinning}).
+
+\paragraph{What the drift match buys.}
+Equality of the escape drift $\mupar$ across arms is a consistency check, not a discovery: $0.498$ vs $0.502$ at the fork (resolved, ${\sim}0.8\%$ of drift), exact along the v-only trajectory ($0.375/0.375$ at step $1{,}000$, $0.223/0.223$ at step $3{,}700$)---confirming only that Jensen corrections through the Adam denominator are negligible \emph{at matched states}, a verified premise, not a result. Load-bearing are the fates, the transverse-diffusion ratio, and that both hold in a real curved landscape (Fig.~\ref{fig:dissoc}); our strongest phrasing (noise does not weaken the pull) is scoped to the three probed states.
+
+\paragraph{Different effective optimizers, as a finding.}
+The v-only and both-channel arms are, by construction, different effective optimizers---mechanism, not confound. A noise floor in the second moment $v$ inflates it toward a near-constant, so the v-only update reduces to a rescaled clean-gradient (momentum) step and Adam's per-coordinate normalization is overwritten---the route by which noise in $v$ turns DP-Adam into rescaled DP-SGD absent a bias correction \citep{dpadambc}, seen in private fine-tuning \citep{litramer} and consistent with the SGD/Adam gap living in normalization, not noise magnitude \citep{kunstner}. Hence v-only realizes $\gam\approx1$. The second-moment inflation, flat $\gam(c)$, $\gam_v\approx1$, and m-only denominator blow-up are construction checks following from Adam's scale invariance \citep{adam}. Pinning is a corollary of that invariance; we ship the method corollary---gradient-space power matching is not an adequate control, so realized update-space power must be reported---plus the measured $\gam\approx2$ level, which is empirical, not algebraic.
+
+\paragraph{Corrections ledger.}
+App.~\ref{app:ledger} logs withdrawn claims: escape impossibility (now ${\geq}$-horizon censoring), erasure-to-scratch, second-moment-channel-alone, a crawl/round-trip overcount, ``ignition'' and ``corridor'' demoted by their registered tests, and one horizon deviation ($T$: $3{,}500\!\to\!2{,}000$).

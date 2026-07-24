@@ -1,0 +1,87 @@
+\section{The mechanism measurement}
+\label{sec:mechanism}
+
+\paragraph{Two routings, two effective optimizers.}
+We bracket the fork with a v-only routing (clean $m$, noisy $v$) and a
+both-channel routing. v-only realizes update-space power $\Gamma\approx1$---the
+level its second-moment algebra predicts, a construction check
+(Fig.~\ref{fig:pinning})---while both-channel realizes $\Gamma\approx2$. That
+$\Gamma_v\approx1$ pinning is derivable post-hoc from Adam's scale invariance
+\citep{adam}, so we ship not the pinning but its corollary---gradient-space power
+matching is not an adequate control, so realized update-space power must be
+reported---together with the both-channel level (measured $\Gamma=1.89$ vs.\ a
+scalar-noise prediction $1+a^2=1.006$; $q=0.70$, $\rho=-0.28$), an anomaly that
+account does not predict. Its \emph{consequence} we report as a finding: a noise
+floor in the second-moment accumulator swamps Adam's per-coordinate denominator
+and removes its normalization, so the v-only arm evolves as a \emph{rescaled
+plain-gradient-descent} process---the mechanism by which DP-Adam collapses onto
+DP-SGD once bias-corrected noise reaches the denominator \citep{dpadambc,litramer},
+turning on Adam's identity as a normalized sign/variance step
+\citep{adam,balleshennig,kunstner,amsgrad}. Not a caveat: the two arms are
+genuinely different effective optimizers, and the dissociation below concerns
+routings and their realized diffusion, not one fixed optimizer.
+
+\paragraph{Drift matched, diffusion four to seven orders apart.}
+We measure the conditional one-step update at the fork ($K{=}512$ paired draws,
+common random numbers; $\mathbb{E}[u]$ Monte-Carlo averaged, not by construction;
+float32/float64 bit-identical; Table~\ref{tab:drift}). Along
+$e=u_{\mathrm{clean}}/\|u_{\mathrm{clean}}\|$ the drift
+$\mu_\parallel=\langle\mathbb{E}[u],e\rangle$ agrees to two decimals
+($0.498$ vs.\ $0.502$); the resolved gap $\Delta\mu_\parallel=+0.0038$
+(bootstrap 95\% CI $[0.0015,0.0062]$, ${\approx}0.8\%$) is small and, if anything,
+marginally favors the trapped arm. Transverse diffusion differs $\times3.9\mathrm{e}4$
+($0.021$ vs.\ $817$). This matched drift is a \emph{consistency check}, not a
+discovery: it verifies a premise---that nonlinear (Jensen) corrections through the
+Adam denominator are negligible at matched states. The load-bearing content is the
+fates (re-solve vs.\ censored ${\ge}16{,}000$ steps), the diffusion gap, and that
+both hold in a real curved landscape. Along the v-only arm's own trajectory
+($K{=}256$) the drifts coincide at reported precision ($0.375$/$0.375$ at step
+$1{,}000$; $0.223$/$0.223$ at $3{,}700$) while the transverse-diffusion ratio
+(both/v-only) climbs $4.3\mathrm{e}6\!\to\!5.3\mathrm{e}7$ toward onset. Across all
+three measured states the pull toward re-solution is preserved and diffusion runs
+four to seven orders above it. This is the counterexample to ``noise$=$escape
+agent''---where injected noise usually carries a trajectory off a plateau
+\citep{saddle,zhu} or selects minima \citep{wumae,ziyin,eoss,wenfisher}, here the
+noise that denies recovery leaves the pull intact and drowns it transversely
+\citep{stochcollapse}---and the fate tracks realized diffusion, not amplitude: the
+reduced-amplitude both-channel arm ($\Gamma\approx1.86$) stays censored
+${\ge}16{,}000$ steps.
+
+\paragraph{Burial, and its mirror image in recovery.}
+At the censored both-channel states the full-batch gradient norm is nonzero and
+\emph{grows} across the trap ($\|g\|$ $0.048\!\to\!0.583$ over $0.5$k--$16$k) with
+a small consistently-signed escape-direction component: an intact pull that
+transverse diffusion buries, not a drift-dead region to which noise relocated the
+state---clean replay from the same weights re-solves in ${\approx}800$ steps. This
+separates the phenomenon from loss of plasticity, where the useful gradient itself
+decays \citep{dohare}, and from late-stage collapse read as an endpoint
+\citep{antigrok}. Recovery is the mirror image, amplification: each recovering arm
+on its \emph{own} escape direction shows systematic pre-onset growth of
+$s_t=\langle-g,e_{\mathrm{own}}\rangle$---cumulative projected movement $P_T$ of
+$741$ for clean ($\times145$) and $166$ for v-only ($\times106$), each direction
+internally stable (pairwise $\cos=0.97$). The directions differ \emph{across} arms:
+v-only recovers nearly orthogonal to clean, its $P_T$ only $9.9$ on clean's axis
+vs.\ $166$ on its own, so a single held-out direction does not transfer and the
+amplification is arm-specific. Together: recovery amplifies an intact
+escape-direction pull along the arm's own axis, and trapping leaves that same pull
+intact while transverse diffusion prevents its amplification---the fate set by
+realized diffusion, not drift; the object of study is the trajectory, not the
+endpoint \citep{position}.
+
+\begin{table}[t]
+\centering\small
+\caption{Conditional one-step update at the fork ($K{=}512$ paired draws, common
+random numbers; $\mathbb{E}[u]$ Monte-Carlo averaged, not by construction;
+float32/float64 bit-identical). $e=u_{\mathrm{clean}}/\|u_{\mathrm{clean}}\|$.}
+\label{tab:drift}
+\begin{tabular}{lcc}
+\toprule
+ & v-only noise & both-channel noise \\
+\midrule
+escape drift $\mu_\parallel$ & $0.498\pm1.1{\times}10^{-4}$ & $0.502\pm1.2{\times}10^{-3}$ \\
+$\cos(\mathbb{E}[u],u_{\mathrm{clean}})$ & $0.933$ & $0.366$ \\
+transverse diffusion $V_\perp$ & $0.021$ & $817$ \;($\times3.9\mathrm{e}4$) \\
+along-axis $\mathrm{SNR}_\parallel$ & $193$ & $18.5$ \\
+\bottomrule
+\end{tabular}
+\end{table}

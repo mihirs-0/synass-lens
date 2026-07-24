@@ -1,0 +1,27 @@
+% OPT 2026 workshop paper (anonymized). NOTE: the official opt2026.sty was not
+% available in-repo; this preamble APPROXIMATES the OPT single-column format
+% (based on the JMLR/NeurIPS-workshop layout). Replace with the official
+% opt2026.sty at submission and remove the geometry block below.
+\documentclass[10pt]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{times}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{natbib}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\usepackage{caption}
+\captionsetup{font=small,labelfont=bf}
+\usepackage{authblk}
+\graphicspath{{figs/}}
+\newcommand{\mupar}{\mu_{\parallel}}
+\newcommand{\Vperp}{V_{\perp}}
+\newcommand{\Vpar}{V_{\parallel}}
+\newcommand{\gam}{\Gamma}
+\setlength{\parskip}{2pt}
+
+\title{\bf Gradient noise can deny recovery without weakening the drift toward it:\\ a measured dissociation in AdamW}
+\author{Anonymous Author(s)}
+\affil{Submitted to the OPT 2026 Workshop on Optimization for Machine Learning. Under double-blind review.}
+\date{}

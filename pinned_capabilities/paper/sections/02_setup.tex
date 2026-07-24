@@ -1,0 +1,23 @@
+\section{Setup}
+\label{sec:setup}
+
+Each comparison contrasts optimizer runs sharing a start state, differing in one controlled respect \citep{position}.
+
+\paragraph{System and collapsed state.}
+A small transformer trained with AdamW \citep{adam} memorizes $10{,}000$ rows $(B,z)\!\mapsto\!A$, $B$ $K$-fold ambiguous, $z$ disambiguating. Continued full-batch training past interpolation drives it onto the \emph{input-blind marginal}: first-token CE rises to $\approx\ln36\approx3.58$ nats, the measured optimum (not $\ln K$, a candidate-restricted diagnostic). This collapsed checkpoint, a degenerate attractor of continued training \citep{stochcollapse}, starts all forks.
+
+\paragraph{The frozen fork.}
+From one checkpoint we fork copies sharing the full optimizer state ($\theta$, moments $(m,v)$, step, bias-correction), differing \emph{only} in where injected noise routes into the moments: \textbf{clean} (none); \textbf{v-only} (second moment noised, first clean); \textbf{both-channel}; \textbf{reduced-amplitude both-channel}; \textbf{m-only} at low dose (first-moment noise over a clean second moment drives the per-coordinate denominator toward zero and diverges---a construction check, not a result); \textbf{minibatch-magnitude} (both-channel, variance matched to the measured minibatch-gradient fluctuation). A finding, not a caveat: a noise floor in $v$ swamps the gradient in Adam's per-coordinate denominator, so v-only is a \emph{rescaled gradient-descent process} and the arms are strictly different effective optimizers---the mechanism collapsing DP-Adam onto DP-SGD \citep{dpadambc,litramer}. \emph{Where} noise enters, not how much, sets the dynamics.
+
+\paragraph{Solve/onset criteria and $\ge$-horizon censoring.}
+A fork is \emph{solved} when first-token CE returns to and sustains the pre-collapse band; \emph{onset} is first entry. Both criteria and the $16{,}000$-step horizon were fixed a priori; an unsolved fork is right-censored at $\ge16{,}000$ steps as a lower bound, never imputed. On the reference fork (Fig.~\ref{fig:fork}), clean replay re-solves in $\approx800$ steps; both-channel minibatch-magnitude noise does not, both seeds censored at $\ge16{,}000$ (final CE $3.47/3.54$ vs the $3.58$ floor)---a $\ge20\times$ slowdown, itself a lower bound. Absolute times are device-sensitive; every cross-arm comparison runs in one harness.
+
+\paragraph{Realized-power ($\Gamma$) shadow accounting.}
+A \emph{shadow} optimizer advances its moments by the clean full-batch gradient at $\theta_t$, giving the clean-step update $u^{\mathrm{sh}}_t$; the realized update-space noise power
+\[
+\Gamma=\frac{\sum_t\lVert u_t-u^{\mathrm{sh}}_t\rVert^2}{\sum_t\lVert u^{\mathrm{sh}}_t\rVert^2}
+\]
+is a windowed median over steps $100$--$500$. Pinning $\Gamma$ almost independently of the injected dial is a corollary of Adam's scale invariance \citep{adam}: rescaling amplitude leaves per-coordinate normalization unchanged, so a flat $\Gamma$-versus-dial curve is algebra, a construction check; the shipped claim controls that corollary and adds the measured level. Gradient-space matching is inadequate---the model barely feels injected magnitude near small-gradient states---so we report realized $\Gamma$. The both-channel level $\Gamma\!\approx\!2$ doubles the $\approx\!1$ of an independent scalar-noise account, and both-channel noise censors at $\ge16{,}000$ even at reduced amplitude ($\Gamma\!\approx\!1.86$): the trap tracks pinned realized power, not the dial (Fig.~\ref{fig:pinning}).
+
+\paragraph{Replay and precision verification.}
+A hand-recomputed one-step AdamW update from $(\theta,m,v,\text{step})$ matches the framework to relative error $1.3\times10^{-17}$; the conditional-update statistics behind Fig.~\ref{fig:dissoc} are bit-identical in float32 and float64. Reported gaps between arms are dynamical, not numerical.

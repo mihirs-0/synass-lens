@@ -1,0 +1,198 @@
+\appendix
+
+\section{Run ledger}
+\label{app:ledger}
+Every arm reported in the paper draws on one collapsed checkpoint (the fork
+state) or a fresh initialization, run under a single AdamW harness with the same
+horizon. Non-escapes are censored: an arm that has not re-solved by the horizon
+is recorded as ``$\ge$-horizon,'' a lower bound on its reacquisition time, not
+as a terminal outcome. Escape steps are the onset step at which the model leaves
+the $\ln 36$ floor. Table~\ref{tab:ledger} is the complete accounting behind
+Figs.~\ref{fig:fork} and~\ref{fig:twobytwo}; the dose sweep is broken out in
+App.~\ref{app:dose}. That noise slows learning at all is a construction check,
+not the result; the result is that the slowdown is set by \emph{where} the noise
+is routed \citep{position}.
+
+\begin{table}[h]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}p{2.5cm} p{1.7cm} c p{2.4cm} p{3.5cm}@{}}
+\toprule
+Routing & Start & Seeds & Outcome & Note / deviation \\
+\midrule
+Clean (full-grad.\ replay) & collapsed fork & --- (noise-free) & escape $\sim$800 & CPU decomposition; MPS escape slower (device-sensitive; see App.~\ref{app:corr}) \\
+Both-channel (minibatch-magnitude) & collapsed fork & 2 (both censored) & $\ge$16{,}000; final CE 3.47 / 3.54 & floor $\approx 3.58=\ln 36$; the $\ge$20$\times$ slowdown is a lower bound \\
+Reduced-amplitude both-channel ($c{=}0.6$, $\gam{\approx}1.86$) & collapsed fork & 1 & $\ge$16{,}000 (censored) & outcome-invariance: trap tracks pinned felt-noise, not injected amplitude \\
+Minibatch-magnitude & collapsed fork & 1 & displayed reference (Fig.~\ref{fig:fork}) & the magnitude the both-channel arm is matched to \\
+v-only noise ($s{=}1.0$) & collapsed & 1 & escape 4{,}600 & dose row, App.~\ref{app:dose} \\
+Clean & fresh init & --- (noise-free) & escape 2{,}200 & the rate ($\eta{=}0.0125$) is not the obstruction \\
+v-only noise ($s{=}1.0$) & fresh init & 1 & escape 8{,}400 (original table) & sibling-table 4{,}000 was a table artifact, excluded (App.~\ref{app:corr}) \\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Run ledger.} Horizon $=16{,}000$ steps throughout; $2\times2$
+onsets are at $\eta=0.0125$, single seed per cell. Registered deviation applied
+uniformly: the stuck-state detection threshold $T$ was reduced $3{,}500\to2{,}000$
+mid-program (logged in App.~\ref{app:corr}).}
+\label{tab:ledger}
+\end{table}
+
+\section{The realized-power pinning table}
+\label{app:pinning}
+Table~\ref{tab:pinning-full} is the full version of Fig.~\ref{fig:pinning}:
+realized update-space noise power $\gam=\sum\lVert u-u_{\text{sh}}\rVert^2/\sum\lVert
+u_{\text{sh}}\rVert^2$ (shadow-update power ratio), windowed-median over steps
+100--500, against the injected dial. The core is derivable post-hoc from Adam's
+scale invariance \citep{adam}: the flatness of $\gam$ across the both-channel
+dial $c$ is algebra, and $\gam_v\approx1$ for v-only is the same v-inflation
+identity---injecting into an already noise-dominated denominator adds no
+update-space power. Both are construction checks. The m-only column exploding is
+also a construction check (the clean-$v$ denominator: momentum noise divided by a
+near-zero, clean second moment blows up per coordinate), in line with the AMSGrad
+denominator analysis \citep{amsgrad}. The shipped claim is the control corollary
+and the measured $\gam\approx2$ level (App.~\ref{app:gamma}), not the invariance.
+
+\begin{table}[h]
+\centering
+\footnotesize
+\begin{tabular}{@{}l l l@{}}
+\toprule
+Routing & Injected dial & Realized $\gam$ (median, steps 100--500) \\
+\midrule
+v-only (clean $m$, noisy $v$) & $s=1.0\,/\,2\,/\,4$ & $0.98\,/\,0.975\,/\,0.984$ \quad ($\approx1$, dial-invariant) \\
+Both-channel & $c=0.5\,/\,0.6\,/\,0.7\,/\,1.0$ & $1.99\,/\,1.86\,/\,2.15\,/\,1.89$ \quad ($\approx2$, dial-invariant) \\
+m-only, clean $v$ & $s=0.02\,/\,0.05\,/\,0.1\,/\,0.25$ & $251\,/\,2{,}618\,/\,7{,}773\,/\,1.0\!\times\!10^{7}$ \quad ($\ge250$, exploding) \\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Routing pins realized power.} Within each routing $\gam$ is
+nearly dial-invariant, so the injected magnitude is an x-axis the model does not
+feel near small-gradient states. Corollary (method): gradient-space power
+matching is not an adequate control; report realized update-space power.}
+\label{tab:pinning-full}
+\end{table}
+
+\paragraph{Structural disclosure (finding, not caveat).}
+The v-only routing, with $\gam_v\approx1$, is structurally a rescaled
+plain-gradient (momentum) process: the noise floor in $v$ flattens Adam's
+per-coordinate $1/\sqrt{v}$ normalization, so v-only and both-channel are
+different effective optimizers rather than two settings of one. We report this as
+a finding---the noise floor in $v$ destroys Adam's normalization---directly
+analogous to the mechanism by which DP-Adam collapses to DP-SGD absent bias
+correction \citep{dpadambc,litramer}, and to the sign/variance decomposition of
+Adam updates \citep{balleshennig,kunstner}. It is disclosed here, where the
+structural facts live, rather than treated as a confound to be matched away.
+
+\section{Corrections ledger (audit trail)}
+\label{app:corr}
+Each row is a claim an earlier draft made and the measurement that retired it.
+The list is the audit trail for the trust spine; it is reported in full so the
+retractions are legible.
+
+\begin{table}[h]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}p{2.9cm} p{4.0cm} p{6.0cm}@{}}
+\toprule
+Retraction & What was claimed & What retired it \\
+\midrule
+Irrecoverability & the collapsed state is a terminal minimum the optimizer would not exit & clean full-gradient replay re-solves in $\sim$800 steps from the identical $(\theta,m,v)$; all non-escapes reframed as $\ge$-horizon censoring (Fig.~\ref{fig:fork}) \\
+Erasure-to-scratch & noise resets the solution back to initialization & collapsed$+$v-noise reacquires at 4{,}600 vs fresh$+$v-noise 8{,}400 on the same table (Fig.~\ref{fig:twobytwo}); the head start survives, so the state is not reset \\
+``$v$-channel explains everything'' & the second-moment channel alone accounts for the trap & single-channel isolation arms cannot be matched on gradient-space power---Adam couples the channels through the shared update; the clean statement is the pinning corollary (App.~\ref{app:pinning}) \\
+Crawl / round-trip overcount & a progress metric that double-counted a crawl and its return & the overcount was located and the metric corrected downward \\
+Ignition & an ``ignition'' trigger initiates escape & the mechanism's own pre-registered test did not fire; demoted \\
+Corridor / reservoir & escape proceeds through a fixed ``corridor'' / an erasable progress reservoir & progress survives dosing and has no single module address; demoted \\
+Registered horizon deviation & stuck-state detector threshold $T=3{,}500$ & reduced to $T=2{,}000$ mid-program; logged and applied uniformly across all arms \\
+Device sensitivity & an absolute escape-time claim & the metastable escape is float/device-sensitive (CPU vs MPS); only the relative across-arm comparison under one harness is used \\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Corrections ledger.} The collapsed state is an attractor in the
+sense of \citet{stochcollapse}, but recovery is a censored $\ge$-horizon event,
+not a fixed endpoint.}
+\label{tab:corr}
+\end{table}
+
+\section{Exploratory: the $\gam\approx2$ anomaly}
+\label{app:gamma}
+This section is \emph{exploratory} and not load-bearing; the main text reports
+$\gam\approx2$ only as a measurement. The per-step power admits an exact algebraic
+decomposition,
+\[
+\gam \;=\; 1 + q^2 - 2q\rho,\qquad
+q=\frac{\lVert u_{\text{both}}\rVert}{\lVert u_{\text{clean}}\rVert},\quad
+\rho=\cos\!\big(u_{\text{both}},u_{\text{clean}}\big).
+\]
+From the logs, $q=0.70$ (the both-channel update is \emph{smaller} than clean)
+and $\rho=-0.28$ (anti-correlated), giving $\gam=1.894$, matching the measured
+$1.89$; the residual is large ($\nu=\lVert r\rVert/\lVert u_{\text{clean}}\rVert
+=1.38$) and anti-aligned ($A_{\text{align}}=\cos(r,u_{\text{clean}})=-0.87$). The
+scalar prediction $1+a^2=1.006$ ($a=0.079$) is thus off by a factor of two.
+
+\paragraph{Sparsity account.}
+The clean update is sparse: its participation ratio is $2{,}576$, i.e.\ $0.32\%$
+of $D=807{,}720$ coordinates. On the remaining $\approx99.68\%$ near-zero
+coordinates the per-coordinate $1/\sqrt{v}$ normalization renders the injected
+floor into a unit-scale sign field, so the both-channel update carries most of
+its mass in the null directions---this is what drives $\rho<0$ and the large
+$\nu$. A $\beta_1$ scaling for the momentum channel: the stationary fraction of
+injected noise surviving the low-pass is
+\[
+f(\beta_1)=\frac{1-\beta_1}{1+\beta_1}\qquad(\,f=0.0526\text{ at }\beta_1=0.9\,),
+\]
+which, combined with the null-coordinate mass, gives $q<1$; when the null mass
+balances the surviving active drift, $\gam=1+q^2-2q\rho\to2$. The account rests on
+stated independence assumptions: (i) injected coordinate noise is zero-mean, iid
+across steps and coordinates, and independent of the clean gradient; (ii) the
+second moment $v$ is quasi-stationary over the window (frozen denominator); (iii)
+on null coordinates the clean gradient is negligible, so the normalized update is
+pure sign-of-noise. Under (i)--(iii) the anisotropy resembles the SGD covariance
+structure of \citet{zhu,wenfisher,ziyin}. We do not fit these; the exact
+decomposition above is what this section rests on. \emph{Scope note (consistency
+check, not a discovery):} at the three probed states the escape-direction drift
+is matched---two decimals at the fork ($\mupar=0.498$ vs $0.502$, $\Delta$ resolved
+at $\sim\!0.8\%$) and exact along the trajectory ($0.375/0.375$; $0.223/0.223$)---
+confirming that nonlinear (Jensen) corrections through the Adam denominator are
+negligible \emph{at these matched states}; the load-bearing empirics remain the
+fates (re-solve vs.\ $\ge$-horizon censoring), the diffusion ratio, and that these
+hold in a real curved landscape rather than a constructed one
+(Fig.~\ref{fig:dissoc}).
+
+\section{Dose--response}
+\label{app:dose}
+Table~\ref{tab:dose} is the v-only inset of Fig.~\ref{fig:twobytwo}: onset step
+from the collapsed state versus injected scale $s$, at $\eta=0.0125$, single seed
+per cell. Onset rises then saturates; increasing $s$ past $0.75$ does not further
+delay reacquisition, consistent with the pinning result that realized felt-noise,
+not injected amplitude, sets the trap. This is the opposite of the saddle picture,
+where added isotropic noise accelerates escape \citep{saddle,zhu}; the operative
+regime is set by the realized noise magnitude relative to the stability edge
+\citep{wumae,eoss}.
+
+\begin{table}[h]
+\centering
+\footnotesize
+\begin{tabular}{@{}l c c c c@{}}
+\toprule
+Injected scale $s$ & 0.25 & 0.50 & 0.75 & 1.00 \\
+\midrule
+v-only onset (steps) & 3{,}400 & 3{,}600 & 4{,}600 & 4{,}600 \\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Dose--response (v-only, collapsed start).} Onset saturates in
+the injected scale.}
+\label{tab:dose}
+\end{table}
+
+\section{Secondary note: entrenchment}
+\label{app:entrench}
+A contingent observation, offered only as a secondary note and not used elsewhere.
+Under v-only noise on the original table, the young collapsed checkpoint reacquires
+faster than a fresh initialization (4{,}600 vs 8{,}400): a recently collapsed state
+retains a usable head start. Aged collapsed checkpoints reacquire more slowly,
+consistent with loss-of-plasticity phenomenology \citep{dohare} and late-stage
+grokking collapse \citep{antigrok}. The ordering is contingent on checkpoint age
+and table identity, so we do not build on it. The same $2\times2$ numbers also
+admit a common-onset-floor reading---noise imposing a shared reacquisition floor
+largely independent of start state---and we give it equal weight; the entrenchment
+ordering holds only under the targeted-erasure reading. This bears on the call to
+study training dynamics as objects in their own right \citep{position}.

@@ -1,0 +1,46 @@
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.62\linewidth]{fig1_fork.png}
+\caption{\textbf{The fork.} From one collapsed checkpoint with identical
+$(\theta,m,v)$ and step counter, only the noise routing differs. Clean
+full-gradient replay re-solves in ${\sim}800$ steps; both-channel
+minibatch-magnitude noise is censored at ${\ge}16{,}000$ steps (both seeds);
+v-only noise re-solves slowly. Escape times are device-sensitive (the
+metastable escape is float-sensitive); the relative comparison across arms uses
+a single harness.}
+\label{fig:fork}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.60\linewidth]{fig2_pinning.png}
+\caption{\textbf{Routing pins realized power.} Realized update-space noise power
+$\gam$ (shadow-update power ratio) versus the injected dial. v-only sits at
+$\gam{\approx}1$, both-channel at $\gam{\approx}2$, and direction-only (m-only)
+noise at low dose already realizes $\gam{\ge}250$ and grows. Within each
+routing, $\gam$ is nearly dial-invariant; reduced-amplitude both-channel noise
+is also outcome-invariant (still censored).}
+\label{fig:pinning}
+\end{figure}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.92\linewidth]{fig3_dissociation.png}
+\caption{\textbf{The dissociation.} Left: the escape-direction drift $\mupar$
+is matched between v-only and both-channel at the fork (to two decimals) and
+along the v-only trajectory (exactly), while the transverse diffusion ratio
+$\Vperp^{\text{both}}/\Vperp^{\text{v}}$ runs $4$--$7$ orders of magnitude above
+it. Right: on each recovering arm's own escape direction, cumulative projected
+movement $P_T$ grows (amplification); the censored arms stay flat.}
+\label{fig:dissoc}
+\end{figure*}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.58\linewidth]{fig4_2x2.png}
+\caption{\textbf{Reacquisition $2\times2$.} Onset step by starting state and
+routing (original table). Fresh--clean learns at this rate, so the rate is not
+the obstruction; under v-only noise the trained-state advantage is eliminated
+(possibly inverted). Inset: v-only onset saturates in the injected scale.}
+\label{fig:twobytwo}
+\end{figure}

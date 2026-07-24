@@ -1,0 +1,45 @@
+\section{The reacquisition $2\times2$}
+\label{sec:twobytwo}
+
+To separate whether the noise acts on \emph{what collapse stored} or merely on
+\emph{learning in general}, we cross initialization (fresh random init vs.\ the
+collapsed checkpoint \citep{stochcollapse}) with routing (clean vs.\ v-only noise
+at $s{=}1.0$), one seed per cell at the fixed $\eta{=}0.0125$, reporting the onset
+step (Fig.~\ref{fig:twobytwo}). We use v-only here---not both-channel, which is
+censored at ${\ge}16{,}000$ steps---so every cell reaches onset. Routing noise
+into $v$ alone pins realized power at $\Gamma\approx1$ by construction (a
+scale-invariance identity; Fig.~\ref{fig:pinning}); its reportable consequence is
+structural: the second-moment noise floor overrides Adam's per-coordinate
+normalization, so the v-only arm is a rescaled plain-gradient-descent process.
+Clean and v-only are thus \emph{different effective optimizers}, not one optimizer
+at two noise levels---the destruction of Adam's normalization is the mechanism the
+grid probes, not a confound.
+
+The grid: collapsed $=800$ (clean) / $4{,}600$ (v-only); fresh $=2{,}200$ (clean)
+/ $8{,}400$ (v-only). Fresh$+$clean reaches onset at $2{,}200$, so the task is
+acquired from scratch at this rate and no elevated onset is a rate artifact. That
+v-only noise slows the fresh run ($2{,}200\!\to\!8{,}400$) is a \emph{construction
+check}---generic noise impedes learning---not a finding; the signal is how the
+rows move \emph{relative} to one another. In the clean column collapse buys a
+head start ($800$ vs.\ $2{,}200$, $2.75\times$); in the noise column that relative
+advantage all but disappears ($4{,}600$ vs.\ $8{,}400$, $1.83\times$), the
+collapsed cell absorbing the larger multiplicative penalty ($5.75\times$ vs.\
+$3.8\times$). We record the registered claim: the collapse advantage is
+\emph{eliminated (possibly inverted)}. The grid replicates on the original table
+(promoted from provisional); an earlier sibling table read $4{,}000$ in the
+fresh$+$v-only cell, a table artifact we do not build on. On the original table
+the fresh$+$v-only onset is $8{,}400>4{,}600$, so the head start survives in
+absolute terms and we make \emph{no standalone inversion claim}.
+
+We read the noise cells two ways, at equal weight. Under \emph{targeted erasure},
+the noise degrades precisely the conditional structure that made the collapsed run
+fast, so reacquisition proceeds from a partly-erased prior \citep{dohare}; the
+collapsed cell's $5.75\times$ slowdown is its signature. Under a \emph{common
+onset floor}, v-only noise imposes an escape-time cost largely independent of
+starting structure, lifting both rows toward a shared noise-set floor; the
+near-parity of the two penalties and the compression of the row ratio
+($2.75\times\!\to\!1.83\times$) are its signature. Both are consistent with an
+eliminated advantage and neither requires inversion. The elevated collapsed onset
+saturates in noise scale ($3{,}400$/$3{,}600$/$4{,}600$/$4{,}600$ at
+$s{=}0.25$/$0.5$/$0.75$/$1.0$; Fig.~\ref{fig:twobytwo} inset), mirroring the
+dial-invariance of realized power.
