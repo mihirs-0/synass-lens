@@ -6,6 +6,14 @@ from .dataset import (
     collate_fn,
     create_datasets_from_config,
 )
+from .continual import (
+    reassign_mappings,
+    expand_k,
+    contract_k,
+    compute_mapping_divergence,
+    mappings_to_examples,
+    verify_reassignment,
+)
 
 __all__ = [
     "CharTokenizer",
@@ -15,4 +23,10 @@ __all__ = [
     "DisambiguationDataset",
     "collate_fn",
     "create_datasets_from_config",
+    "reassign_mappings",
+    "expand_k",
+    "contract_k",
+    "compute_mapping_divergence",
+    "mappings_to_examples",
+    "verify_reassignment",
 ]

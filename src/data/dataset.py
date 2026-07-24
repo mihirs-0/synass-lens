@@ -10,6 +10,7 @@ Key insight: We control n_pairs_effective (number of unique B's) across
 experiments, not total number of examples. This ensures fair comparison.
 """
 
+import math
 import random
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
@@ -38,6 +39,46 @@ def generate_random_string(length: int, chars: str, rng: random.Random) -> str:
     return "".join(rng.choices(chars, k=length))
 
 
+def _generate_z_selectors(
+    k: int,
+    z_length: int,
+    vocab_chars: str,
+    rng: random.Random,
+    n_sets: int = 1,
+) -> List[List[str]]:
+    """Generate ``n_sets`` distinct sets of K unique z-selector strings.
+
+    Returns a list of length ``n_sets``, each element a list of K strings.
+    All strings across all sets are globally unique.
+
+    Auto-increases ``z_length`` if the requested capacity (n_sets * k)
+    exceeds len(vocab_chars) ** z_length.
+    """
+    total_needed = n_sets * k
+    capacity = len(vocab_chars) ** z_length
+    effective_z_length = z_length
+    while capacity < total_needed * 2:  # 2× headroom to avoid slow rejection sampling
+        effective_z_length += 1
+        capacity = len(vocab_chars) ** effective_z_length
+    if effective_z_length != z_length:
+        print(f"[INFO] z_length auto-increased {z_length} → {effective_z_length} "
+              f"(need {total_needed} unique z-tokens, alphabet size {len(vocab_chars)})",
+              flush=True)
+
+    used: set = set()
+    all_sets: List[List[str]] = []
+    for _ in range(n_sets):
+        zs: List[str] = []
+        for _ in range(k):
+            z = generate_random_string(effective_z_length, vocab_chars, rng)
+            while z in used:
+                z = generate_random_string(effective_z_length, vocab_chars, rng)
+            used.add(z)
+            zs.append(z)
+        all_sets.append(zs)
+    return all_sets
+
+
 def generate_mappings(
     n_unique_b: int,
     k: int,
@@ -48,10 +89,23 @@ def generate_mappings(
     seed: int = 42,
     task: str = "bz_to_a",
     enforce_unique_a_first_char_per_b: bool = False,
+    disambiguation_prefix_length: int = 1,
+    z_sharing: str = "shared",
+    n_supergroups: int = 1,
 ) -> MappingData:
     """
     Generate mappings for the selected task.
-    
+
+    Args:
+        z_sharing: How z-selectors are shared across B-groups.
+            * ``"shared"`` (default): one global set of K z-tokens.
+            * ``"private"``: each B-group gets its own K unique z-tokens.
+            * ``"supergroup"``: groups are partitioned into ``n_supergroups``
+              super-groups that each share a set of K z-tokens.
+        n_supergroups: Number of super-groups when ``z_sharing="supergroup"``.
+            ``n_supergroups=1`` is equivalent to ``"shared"``;
+            ``n_supergroups=n_unique_b`` is equivalent to ``"private"``.
+
     Tasks:
       - bz_to_a: base is B, target is A (B, z) -> A (K targets per base)
       - az_to_b: base is A, target is B (A, z) -> B (K bases per target; z redundant)
@@ -60,40 +114,65 @@ def generate_mappings(
     """
     if task not in {"bz_to_a", "az_to_b", "b_to_a", "a_to_b"}:
         raise ValueError(f"Unknown task: {task}")
-    
+    if z_sharing not in {"shared", "private", "supergroup"}:
+        raise ValueError(f"Unknown z_sharing mode: {z_sharing}")
+
     rng = random.Random(seed)
-    
+
     # Track used strings to ensure uniqueness where intended
     used_b: set = set()
     used_a: set = set()
-    
-    # Generate z selectors (reused across all base strings)
-    z_selectors = []
-    for _ in range(k):
-        z = generate_random_string(z_length, vocab_chars, rng)
-        while z in z_selectors:
-            z = generate_random_string(z_length, vocab_chars, rng)
-        z_selectors.append(z)
+
+    # ---- Generate z-selector sets based on sharing mode ----
+    if z_sharing == "shared":
+        z_sets = _generate_z_selectors(k, z_length, vocab_chars, rng, n_sets=1)
+    elif z_sharing == "private":
+        z_sets = _generate_z_selectors(k, z_length, vocab_chars, rng, n_sets=n_unique_b)
+    elif z_sharing == "supergroup":
+        if n_supergroups < 1 or n_supergroups > n_unique_b:
+            raise ValueError(f"n_supergroups must be in [1, {n_unique_b}], got {n_supergroups}")
+        z_sets = _generate_z_selectors(k, z_length, vocab_chars, rng, n_sets=n_supergroups)
+
+    def _z_selectors_for_group(group_idx: int) -> List[str]:
+        if z_sharing == "shared":
+            return z_sets[0]
+        elif z_sharing == "private":
+            return z_sets[group_idx]
+        else:
+            sg_idx = group_idx % n_supergroups
+            return z_sets[sg_idx]
     
     mappings: Dict[str, List[Tuple[str, str]]] = {}
     examples: List[Dict[str, str]] = []
     
     if task in {"bz_to_a", "b_to_a"}:
-        if enforce_unique_a_first_char_per_b and k > len(vocab_chars):
-            raise ValueError(
-                "Cannot enforce unique A first chars per B: k exceeds vocab size."
-            )
+        prefix_len = disambiguation_prefix_length if enforce_unique_a_first_char_per_b else 0
+
+        if enforce_unique_a_first_char_per_b:
+            if prefix_len == 1:
+                max_unique = len(vocab_chars)
+            elif prefix_len == 2:
+                max_unique = len(vocab_chars) ** 2
+            else:
+                raise ValueError(f"disambiguation_prefix_length must be 1 or 2, got {prefix_len}")
+            if k > max_unique:
+                raise ValueError(
+                    f"Cannot enforce unique A {prefix_len}-char prefixes per B: "
+                    f"k={k} exceeds max unique prefixes ({max_unique})."
+                )
 
         # Base strings are B, targets are A
-        for _ in range(n_unique_b):
+        for group_idx in range(n_unique_b):
             b = generate_random_string(b_length, vocab_chars, rng)
             while b in used_b:
                 b = generate_random_string(b_length, vocab_chars, rng)
             used_b.add(b)
-            
+
+            z_selectors = _z_selectors_for_group(group_idx)
+
             # Generate K unique A's for this B (global uniqueness)
             a_list = []
-            if enforce_unique_a_first_char_per_b:
+            if enforce_unique_a_first_char_per_b and prefix_len == 1:
                 first_chars = rng.sample(list(vocab_chars), k)
                 for first_char in first_chars:
                     if a_length == 1:
@@ -116,6 +195,27 @@ def generate_mappings(
                             a = first_char + suffix
                     used_a.add(a)
                     a_list.append(a)
+            elif enforce_unique_a_first_char_per_b and prefix_len == 2:
+                all_prefixes = [c1 + c2 for c1 in vocab_chars for c2 in vocab_chars]
+                selected_prefixes = rng.sample(all_prefixes, k)
+                for prefix in selected_prefixes:
+                    if a_length <= 2:
+                        a = prefix[:a_length]
+                    else:
+                        suffix = generate_random_string(a_length - 2, vocab_chars, rng)
+                        a = prefix + suffix
+                    attempts = 0
+                    while a in used_a:
+                        attempts += 1
+                        if attempts > 1000:
+                            raise ValueError(
+                                "Failed to generate unique A strings. "
+                                "Try increasing a_length or vocab size."
+                            )
+                        suffix = generate_random_string(a_length - 2, vocab_chars, rng)
+                        a = prefix + suffix
+                    used_a.add(a)
+                    a_list.append(a)
             else:
                 for _ in range(k):
                     a = generate_random_string(a_length, vocab_chars, rng)
@@ -123,7 +223,7 @@ def generate_mappings(
                         a = generate_random_string(a_length, vocab_chars, rng)
                     used_a.add(a)
                     a_list.append(a)
-            
+
             mappings[b] = [(z_selectors[i], a_list[i]) for i in range(k)]
             for i in range(k):
                 examples.append({"b": b, "z": z_selectors[i], "a": a_list[i]})
@@ -131,14 +231,14 @@ def generate_mappings(
         n_unique_a = len(used_a)
     else:
         # Base strings are A, targets are B (z is redundant)
-        for _ in range(n_unique_b):
-            # Generate unique B
+        for group_idx in range(n_unique_b):
             b = generate_random_string(b_length, vocab_chars, rng)
             while b in used_b:
                 b = generate_random_string(b_length, vocab_chars, rng)
             used_b.add(b)
-            
-            # Generate K unique A's for this B (global uniqueness)
+
+            z_selectors = _z_selectors_for_group(group_idx)
+
             a_list = []
             for _ in range(k):
                 a = generate_random_string(a_length, vocab_chars, rng)
@@ -146,7 +246,7 @@ def generate_mappings(
                     a = generate_random_string(a_length, vocab_chars, rng)
                 used_a.add(a)
                 a_list.append(a)
-            
+
             mappings[b] = [(z_selectors[i], a_list[i]) for i in range(k)]
             for i in range(k):
                 examples.append({"b": b, "z": z_selectors[i], "a": a_list[i]})
@@ -344,6 +444,9 @@ def create_datasets_from_config(cfg, tokenizer: CharTokenizer) -> Tuple[Disambig
         seed=cfg.experiment.seed,
         task=cfg.data.task,
         enforce_unique_a_first_char_per_b=getattr(cfg.data, "enforce_unique_a_first_char_per_b", False),
+        disambiguation_prefix_length=int(getattr(cfg.data, "disambiguation_prefix_length", 1)),
+        z_sharing=getattr(cfg.data, "z_sharing", "shared"),
+        n_supergroups=int(getattr(cfg.data, "n_supergroups", 1)),
     )
     
     # Label noise: only applied to training data, never to probe/eval

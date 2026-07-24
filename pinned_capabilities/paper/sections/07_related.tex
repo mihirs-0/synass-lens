@@ -1,0 +1,64 @@
+\section{Related work}
+\label{sec:related}
+
+We treat late-training regime change as an object of dynamical study
+\citep{position}; our collapsed checkpoint resembles the destination of late-stage
+generalization collapse in grokking \citep{antigrok}, but the question is what a
+chosen noise process does once the network is there.
+
+\paragraph{Noise as escape agent and regularizer.}
+A large literature reads gradient noise as the agent that leaves bad regions and
+shapes solutions: curvature-aligned anisotropic SGD noise \citep{zhu}, its Fisher
+structure \citep{wenfisher}, provable saddle escape under injected perturbations
+\citep{saddle}, collapse onto low-rank invariant sets \citep{stochcollapse}. We
+report a measured counterexample (Figs.~\ref{fig:fork},~\ref{fig:dissoc}): clean
+replay re-solves in ${\sim}800$ steps while the both-channel replay is censored at
+${\ge}16{,}000$; at the three probed states the escape-direction drift is matched
+across routings (two decimals at the fork, exact along-trajectory) while
+transverse diffusion runs $4$--$7$ orders higher for the censored routing. The
+matched drift is a consistency check (Jensen corrections through the Adam
+denominator negligible at matched states), not a claim; the load-bearing facts are
+the opposite fates, the diffusion ratio, and that both hold in a real curved
+landscape. Scoped to these states, noise denies recovery without weakening the
+pull toward it.
+
+\paragraph{Which minima noise selects.}
+Dynamical-stability analyses explain which minima SGD keeps \citep{wumae},
+symmetry-induced equilibria describe where its noise balances \citep{ziyin}, and
+the edge of stochastic stability sets an operating point \citep{eoss}. Our trapped
+state is not a destabilized minimum---the true gradient is nonzero and grows
+across the horizon ($\|g\|$ $0.048\!\to\!0.583$) with a small consistently-signed
+escape-direction pull---so the pull is intact but buried, and the operating point
+is set by \emph{where} noise enters Adam's moments, not by a curvature balance.
+
+\paragraph{Adam's sign/variance channel and the SGD--Adam gap.}
+Adam's second-moment normalization behaves as a sign/variance-adaptive step
+\citep{adam,balleshennig}, its convergence depends on how that average is formed
+\citep{amsgrad}, and the SGD--Adam gap is driven more by sign structure than noise
+\citep{kunstner}. Our pinning acts on this channel: a noise floor in the second
+moment removes per-coordinate normalization, so the v-only arm is a rescaled
+gradient-descent process---stated as a finding, the arms being structurally
+different effective optimizers. Flat $\Gamma$ across the both-channel dial follows
+post-hoc from Kingma--Ba scale invariance (an algebraic construction check); the
+shipped contributions are the reporting corollary below and the measured level
+anomaly ($\Gamma=1.89$ vs.\ scalar $1.006$), traced to Adam amplifying noise on the
+${\sim}99.7\%$ near-zero-gradient coordinates.
+
+\paragraph{Differentially private Adam: a reporting consequence.}
+DP-Adam is DP-SGD unless bias correction is applied \citep{dpadambc}, and DP
+fine-tuning sets its budget in injected gradient magnitude \citep{litramer}.
+Pinning implies that near small-gradient states an injected-magnitude budget does
+not determine realized update-space power under Adam (Fig.~\ref{fig:pinning}), so
+a gradient-space power match is not an adequate control: realized update-space
+power should be reported.
+
+\paragraph{Plasticity: fresh versus aged.}
+Loss of plasticity attributes failure-to-learn in aged networks to a capacity
+deficit \citep{dohare}. Our fresh-vs-aged $2\times2$ (Fig.~\ref{fig:twobytwo})
+isolates a different axis: the aged (collapsed) start is not learning-disabled
+(both clean cells reach onset quickly, $800$ vs.\ $2{,}200$), so the obstruction
+under v-only noise is the routed noise, not aging. We read the noise cells two
+ways at equal weight, targeted erasure and a common onset floor; the advantage is
+eliminated (possibly inverted), with no standalone inversion claim. The variable
+governing the fate is not the injected magnitude but where the optimizer routes it
+\citep{position}.

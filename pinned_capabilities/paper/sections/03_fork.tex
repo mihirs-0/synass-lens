@@ -1,0 +1,12 @@
+\section{The fork and sufficiency}
+\label{sec:fork}
+
+We take a single collapsed checkpoint---a run that fit then relapsed to the conditional-marginal floor \citep{antigrok}---and \emph{fork} it into an optimizer-complete replay: identical $\theta$, moments $m,v$, step counter, and bias-correction state, differing only in gradient signal, so any divergence isolates the injected noise. Controls: our manual AdamW \citep{adam} step reproduces the framework optimizer to relative $1.3\times10^{-17}$; float32 and float64 replays are bit-identical; the solve criterion is frozen before the fork; every non-escape is reported right-censored at the horizon.
+
+\paragraph{The fork.}
+The clean full gradient re-solves in ${\sim}800$ steps (Fig.~\ref{fig:fork}). \emph{Both-channel noise matched to the minibatch magnitude} (into both $m$ and $v$) does not re-solve within $16{,}000$ steps for either seed; both stay at the floor (cross-entropy $3.47$, $3.54$ vs.\ $\ln 36 \approx 3.58$). The censored horizon is thus a lower bound: a $\ge 20\times$ slowdown. Escape times are device-sensitive. The v-only arm (same panel) is itself a finding: a persistent noise floor in $v$ saturates Adam's per-coordinate normalization, so it evolves as rescaled plain-gradient descent.
+
+\paragraph{Sufficiency, and of what.}
+Minibatch-magnitude noise is thus \emph{sufficient} to hold the model at the floor. At fixed realized update-space power, two covariance structures---isotropic, and the empirical minibatch covariance---both censor at $\ge 16{,}000$ steps: scaled stochastic \emph{power} alone suffices, the anisotropic structure unnecessary and only tightening the trap. Reducing the both-channel amplitude to $c=0.6$ (realized $\Gamma\approx1.86$) still censors at $\ge 16{,}000$ steps (Fig.~\ref{fig:pinning}). Flat $\Gamma(c)$ is a \emph{construction check}---post-hoc algebra from Adam's scale invariance \citep{adam}. The shipped claim is the methodological corollary (control the realized power $\Gamma$, not the injected amplitude) plus the measured anomaly that $\Gamma$ pins near $2$, above the scalar prediction.
+
+This aligns with stochastic collapse \citep{stochcollapse} and dynamical-stability accounts where noise magnitude, not presence, governs retained minima \citep{wumae,eoss}; the matched-power fork adds a clean separation of magnitude from covariance \citep{zhu} at a fixed collapsed state in a real curved landscape.

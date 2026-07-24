@@ -26,6 +26,11 @@ data:
   split_by_base: true
   # Enforce distinct first chars for A among the K options per B
   enforce_unique_a_first_char_per_b: false
+  # Disambiguation prefix length: number of leading characters in A that are
+  # forced unique per B group.  1 = single first char (max K=36 with default
+  # vocab), 2 = first two chars (max K=1296).  Only used when
+  # enforce_unique_a_first_char_per_b is true.
+  disambiguation_prefix_length: 1
   # Label noise: probability of replacing target A with wrong candidate
   # during training. 0.0 = no noise (default). Only affects bz_to_a tasks.
   # Eval/probes always use clean labels regardless of this setting.
@@ -60,6 +65,9 @@ training:
   # Checkpointing
   checkpoint_every: 200
   eval_every: 100
+  # Early stopping: if set, training stops once candidate_loss < frac * log(K)
+  # for 20 consecutive evals.  null = disabled (default).
+  early_stop_convergence_frac: null
   
 # Probes
 probes:

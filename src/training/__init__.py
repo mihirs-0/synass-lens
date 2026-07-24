@@ -1,4 +1,4 @@
-from .trainer import train, compute_loss, TrainingMetrics
+from .trainer import train, compute_loss, TrainingMetrics, TrainingCallbacks, shuffle_z_in_batch
 from .checkpoint import (
     save_checkpoint,
     load_checkpoint,
@@ -10,6 +10,8 @@ __all__ = [
     "train",
     "compute_loss",
     "TrainingMetrics",
+    "TrainingCallbacks",
+    "shuffle_z_in_batch",
     "save_checkpoint",
     "load_checkpoint",
     "list_checkpoints",

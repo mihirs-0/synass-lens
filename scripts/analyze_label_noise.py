@@ -58,7 +58,9 @@ def noise_experiment_name(K, p_noise):
     """Get the experiment directory name for a (K, p_noise) pair."""
     if p_noise == 0.0:
         return BASELINE_NAMES.get(K, f"landauer_k{K}")
-    return f"landauer_k{K}_noise{p_noise}"
+    # Format noise level consistently: 0.05, 0.10, 0.20 (always 2 decimal places)
+    noise_str = f"{p_noise:.2f}"
+    return f"landauer_k{K}_noise{noise_str}"
 
 
 def load_experiment(exp_name, output_dir):

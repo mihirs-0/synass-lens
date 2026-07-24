@@ -1,0 +1,25 @@
+# Experiment 5: Multihead Specialization Analysis
+# Single heavily-instrumented run with dense checkpoints during transition.
+defaults:
+  - ../base
+
+experiment:
+  name: "exp5_multihead"
+  seed: 42
+
+data:
+  n_unique_b: 1000
+  k: 20
+  task: "bz_to_a"
+
+training:
+  batch_size: 128
+  learning_rate: 1e-3
+  weight_decay: 0.01
+  max_steps: 30000
+  warmup_steps: 500
+  scheduler: "cosine"
+  # Dense checkpoints: 25 steps during estimated transition (5k-15k)
+  # and 100 steps otherwise — handled by the orchestrator script.
+  checkpoint_every: 100
+  eval_every: 25

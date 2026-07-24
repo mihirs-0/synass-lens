@@ -1,0 +1,61 @@
+# Dense K-sweep: K=13
+# ALL hyperparameters locked — K is the ONLY variable.
+experiment:
+  name: "landauer_dense_k13"
+  seed: 42
+
+data:
+  n_unique_b: 1000
+  k: 13
+  task: "bz_to_a"
+  b_length: 6
+  a_length: 4
+  z_length: 2
+  vocab_chars: "abcdefghijklmnopqrstuvwxyz0123456789"
+  probe_fraction: 0.0
+  split_by_base: true
+  enforce_unique_a_first_char_per_b: true
+  disambiguation_prefix_length: 1
+
+tokenizer:
+  pad_token: "<PAD>"
+  bos_token: "<BOS>"
+  eos_token: "<EOS>"
+  sep_token: "<SEP>"
+
+model:
+  n_layers: 4
+  n_heads: 4
+  d_model: 128
+  d_head: 32
+  d_mlp: 512
+  act_fn: "gelu"
+
+training:
+  batch_size: 128
+  learning_rate: 0.001
+  weight_decay: 0.01
+  max_steps: 50000
+  warmup_steps: 0
+  scheduler: "constant"
+  checkpoint_every: 100
+  eval_every: 50
+
+probes:
+  enabled:
+    - attention_to_z
+    - logit_lens
+    - causal_patching
+    - random_z_eval
+  attention_to_z:
+    aggregate: true
+    first_token_only: true
+  logit_lens:
+    use_tuned_lens: false
+    first_token_only: true
+  causal_patching:
+    n_examples: 256
+    patch_layers: "all"
+
+output:
+  base_dir: "outputs"

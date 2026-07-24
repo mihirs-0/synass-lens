@@ -2,16 +2,17 @@
 Training loop for Late Disambiguation Lag experiments.
 
 Handles:
-- Training with AdamW and warmup
-- Periodic logging
+- Training with AdamW / SGD and warmup
+- Periodic logging with gradient norms and optimizer-aware dissipation metrics
+- Callback hooks for experiment-specific instrumentation
 - Checkpointing
-- Logging
 """
 
+import math
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
-from dataclasses import dataclass
+from typing import Callable, Dict, Any, List, Optional, Tuple
+from dataclasses import dataclass, field
 import json
 
 import torch
@@ -21,6 +22,7 @@ from transformer_lens import HookedTransformer
 from tqdm import tqdm
 
 from .checkpoint import save_checkpoint, get_checkpoint_dir
+from ..data import CharTokenizer, MappingData
 
 
 @dataclass
@@ -30,6 +32,18 @@ class TrainingMetrics:
     train_loss: float
     train_accuracy: Optional[float] = None
     learning_rate: float = 0.0
+
+
+@dataclass
+class TrainingCallbacks:
+    """Optional hooks invoked at specific points in the training loop.
+
+    Each callback receives the current training state and can record
+    arbitrary metrics.  Return values are ignored.
+    """
+    on_after_backward: Optional[Callable] = None
+    on_after_step: Optional[Callable] = None
+    on_checkpoint: Optional[Callable] = None
 
 
 def shuffle_z_in_batch(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -177,30 +191,64 @@ def train(
     probe_loader: DataLoader,
     cfg,
     output_dir: Path,
+    optimizer_type: str = "adamw",
+    optimizer_kwargs: Optional[Dict[str, Any]] = None,
+    grad_clip: Optional[float] = 1.0,
+    callbacks: Optional[TrainingCallbacks] = None,
+    record_dissipation: bool = False,
+    mapping_data: Optional[MappingData] = None,
+    tokenizer: Optional[CharTokenizer] = None,
+    candidate_eval_n: int = 32,
 ) -> Dict[str, Any]:
     """
     Main training loop.
-    
+
     Args:
-        model: HookedTransformer to train
+        model: HookedTransformer (or compatible) to train
         train_loader: Training data loader
         probe_loader: Probe data loader (held-out subset for analysis)
         cfg: Hydra config
         output_dir: Directory for outputs
-        
+        optimizer_type: "adamw" or "sgd"
+        optimizer_kwargs: Extra kwargs forwarded to the optimizer constructor
+            (e.g. ``{"momentum": 0.9}`` for SGD).
+        grad_clip: Max gradient norm for clipping.  ``None`` disables clipping.
+        callbacks: Optional :class:`TrainingCallbacks` with hooks.
+        record_dissipation: If ``True``, record per-step Q_work, Q_update,
+            and eta_eff for optimizer-aware dissipation analysis (Exp 4).
+        mapping_data: If provided (along with ``tokenizer``), candidate-
+            normalized loss and accuracy are evaluated every ``eval_every``
+            steps instead of first-target loss.
+        tokenizer: Required when ``mapping_data`` is provided.
+        candidate_eval_n: Number of B groups to sample for candidate eval.
+
     Returns:
         Training history dict
     """
     device = model.cfg.device
-    
-    # Setup optimizer
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
+    if callbacks is None:
+        callbacks = TrainingCallbacks()
+    if optimizer_kwargs is None:
+        optimizer_kwargs = {}
+
+    _do_candidate_eval = mapping_data is not None and tokenizer is not None
+    if _do_candidate_eval:
+        from ..analysis.candidate_eval import run_candidate_eval
+
+    # ---- Setup optimizer ----
+    base_optim_kwargs = dict(
         lr=cfg.training.learning_rate,
         weight_decay=cfg.training.weight_decay,
     )
-    
-    # Setup scheduler
+    if optimizer_type == "sgd":
+        base_optim_kwargs.pop("weight_decay", None)
+        base_optim_kwargs.update(optimizer_kwargs)
+        optimizer = torch.optim.SGD(model.parameters(), **base_optim_kwargs)
+    else:
+        base_optim_kwargs.update(optimizer_kwargs)
+        optimizer = torch.optim.AdamW(model.parameters(), **base_optim_kwargs)
+
+    # ---- Setup scheduler ----
     scheduler_type = getattr(cfg.training, "scheduler", "cosine")
     scheduler = get_lr_scheduler(
         optimizer,
@@ -208,136 +256,277 @@ def train(
         cfg.training.max_steps,
         scheduler_type=scheduler_type,
     )
-    
-    # Setup checkpointing
+
+    # ---- Checkpointing ----
     checkpoint_dir = get_checkpoint_dir(str(output_dir), cfg.experiment.name)
-    
-    # Training history
-    history = {
+
+    # ---- Training history ----
+    history: Dict[str, List] = {
         "train_loss": [],
         "train_accuracy": [],
         "first_target_loss": [],
         "loss_z_shuffled": [],
+        "grad_norm_sq": [],
+        "grad_norm_sq_clipped": [],
+        "clipping_active": [],
         "steps": [],
     }
-    
-    # Flag to print diagnostic on first eval
+    if _do_candidate_eval:
+        history["candidate_loss"] = []
+        history["candidate_accuracy"] = []
+    if record_dissipation:
+        history["q_work"] = []
+        history["q_update"] = []
+        history["eta_eff"] = []
+
     _first_z_shuffle_logged = False
-    
-    # Training loop
+
+    # ---- Training loop ----
     model.train()
     step = 0
     epoch = 0
     running_loss = 0.0
     running_acc = 0.0
     running_first_loss = 0.0
+    running_grad_norm_sq = 0.0
+    running_grad_norm_sq_clipped = 0.0
+    running_clip_count = 0
     n_batches = 0
-    
+
+    # Dissipation accumulators (running sums for the current eval window)
+    running_q_work = 0.0
+    running_q_update = 0.0
+    running_eta_eff_sum = 0.0
+
+    # Early stopping: stop when candidate_loss < 1% of log(K) for 20
+    # consecutive evals (1000 steps).  This is strictly more conservative
+    # than the 5% analysis threshold — all measurements (τ, success/fail)
+    # are locked in before this fires.  Only active when candidate eval is
+    # enabled and early_stop_threshold is set in the config.
+    _early_stop_threshold = None
+    _early_stop_patience = 20  # consecutive evals below threshold
+    _early_stop_counter = 0
+    _early_stopped = False
+    if _do_candidate_eval and hasattr(cfg.data, "k"):
+        _es_frac = getattr(cfg.training, "early_stop_convergence_frac", None)
+        if _es_frac is not None:
+            _early_stop_threshold = _es_frac * math.log(cfg.data.k)
+
     pbar = tqdm(total=cfg.training.max_steps, desc="Training")
-    
-    while step < cfg.training.max_steps:
+
+    while step < cfg.training.max_steps and not _early_stopped:
         epoch += 1
-        
+
         for batch in train_loader:
-            if step >= cfg.training.max_steps:
+            if step >= cfg.training.max_steps or _early_stopped:
                 break
-                
-            # Move to device
-            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
+
+            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v
                      for k, v in batch.items()}
-            
+
             # Forward + backward
             optimizer.zero_grad()
             loss, train_acc, first_target_loss = compute_loss(model, batch)
             current_train_acc = train_acc
             loss.backward()
-            
-            # Gradient clipping
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            
+
+            # ---- Gradient norm (pre-clip) ----
+            _grad_norm_sq = sum(
+                p.grad.data.norm() ** 2 for p in model.parameters() if p.grad is not None
+            ).item()
+
+            # ---- Callback: after backward (before clip & step) ----
+            if callbacks.on_after_backward is not None:
+                callbacks.on_after_backward(model=model, batch=batch,
+                                            optimizer=optimizer, step=step,
+                                            grad_norm_sq=_grad_norm_sq)
+
+            # ---- Dissipation: snapshot grads & params before step ----
+            if record_dissipation:
+                _grads = [p.grad.data.clone() for p in model.parameters() if p.grad is not None]
+                _params_before = [p.data.clone() for p in model.parameters()]
+
+            # ---- Gradient clipping ----
+            if grad_clip is not None:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+                _grad_norm_sq_clipped = sum(
+                    p.grad.data.norm() ** 2 for p in model.parameters() if p.grad is not None
+                ).item()
+                _clip_active = _grad_norm_sq_clipped < _grad_norm_sq * 0.999
+            else:
+                _grad_norm_sq_clipped = _grad_norm_sq
+                _clip_active = False
+
             optimizer.step()
             scheduler.step()
-            
-            # Track loss
+
+            # ---- Dissipation: compute per-step quantities ----
+            if record_dissipation:
+                _params_after = [p.data.clone() for p in model.parameters()]
+                _q_work_t = sum(
+                    (g * (pa - pb)).sum()
+                    for g, pa, pb in zip(_grads, _params_after, _params_before)
+                ).item()
+                _q_update_t = sum(
+                    (pa - pb).norm() ** 2
+                    for pa, pb in zip(_params_after, _params_before)
+                ).item()
+                _gnorm = math.sqrt(sum(g.norm() ** 2 for g in _grads).item() + 1e-30)
+                _eta_eff_t = math.sqrt(_q_update_t) / _gnorm
+                running_q_work += _q_work_t
+                running_q_update += _q_update_t
+                running_eta_eff_sum += _eta_eff_t
+                del _grads, _params_before, _params_after
+
+            # ---- Callback: after optimizer step ----
+            if callbacks.on_after_step is not None:
+                callbacks.on_after_step(model=model, batch=batch,
+                                        optimizer=optimizer, step=step + 1)
+
+            # ---- Accumulate running stats ----
             running_loss += loss.item()
             running_acc += train_acc
             running_first_loss += first_target_loss
+            running_grad_norm_sq += _grad_norm_sq
+            running_grad_norm_sq_clipped += _grad_norm_sq_clipped
+            running_clip_count += int(_clip_active)
             n_batches += 1
             step += 1
-            
-            # Log periodically (training-only)
+
+            # ---- Periodic logging ----
             if step % cfg.training.eval_every == 0:
                 avg_train_loss = running_loss / n_batches
                 avg_train_acc = running_acc / n_batches
                 avg_first_loss = running_first_loss / n_batches
-                
-                # === Z-Reshuffle (Z-Shuffle) Diagnostic ===
-                # Compute loss with z swapped across the batch to measure
-                # z-dependence. If the model ignores z, loss should be similar
-                # to clean; if it uses z, shuffled loss should spike.
-                # This does NOT affect gradients or training.
+                avg_grad_norm_sq = running_grad_norm_sq / n_batches
+                avg_grad_norm_sq_clipped = running_grad_norm_sq_clipped / n_batches
+                frac_clipped = running_clip_count / n_batches
+
+                # Z-shuffle diagnostic (read-only, no gradients)
                 with torch.no_grad():
                     model.eval()
                     shuffled_batch = shuffle_z_in_batch(batch)
                     _, _, shuffled_first_loss = compute_loss(model, shuffled_batch)
                     loss_z_shuffled_val = shuffled_first_loss
                     model.train()
-                
-                # Print diagnostic on first eval
+
+                # Candidate-normalized eval (K-way disambiguation)
+                _cand_loss_val = None
+                _cand_acc_val = None
+                if _do_candidate_eval:
+                    model.eval()
+                    cand_result = run_candidate_eval(
+                        model=model,
+                        tokenizer=tokenizer,
+                        mapping_data=mapping_data,
+                        n_examples=candidate_eval_n,
+                        task=cfg.data.task,
+                        device=str(device),
+                        seed=step,
+                    )
+                    _cand_loss_val = cand_result["candidate_loss"]
+                    _cand_acc_val = cand_result["candidate_accuracy"]
+                    model.train()
+
                 if not _first_z_shuffle_logged:
-                    print(f"\n[Z-Shuffle Probe] Step {step} | "
-                          f"Clean Loss: {first_target_loss:.4f} | "
-                          f"Shuffled Loss: {loss_z_shuffled_val:.4f}")
+                    msg = (f"\n[Z-Shuffle Probe] Step {step} | "
+                           f"Clean Loss: {first_target_loss:.4f} | "
+                           f"Shuffled Loss: {loss_z_shuffled_val:.4f}")
+                    if _cand_loss_val is not None:
+                        msg += f" | Cand Loss: {_cand_loss_val:.4f}"
+                    print(msg, flush=True)
                     _first_z_shuffle_logged = True
-                
+
                 history["train_loss"].append(avg_train_loss)
                 history["train_accuracy"].append(avg_train_acc)
                 history["first_target_loss"].append(avg_first_loss)
                 history["loss_z_shuffled"].append(loss_z_shuffled_val)
+                if _do_candidate_eval:
+                    history["candidate_loss"].append(_cand_loss_val)
+                    history["candidate_accuracy"].append(_cand_acc_val)
+
+                    if _early_stop_threshold is not None and _cand_loss_val is not None:
+                        if _cand_loss_val < _early_stop_threshold:
+                            _early_stop_counter += 1
+                            if _early_stop_counter >= _early_stop_patience:
+                                print(f"\n[Early stop] Converged at step {step} "
+                                      f"(cand_loss={_cand_loss_val:.6f} < "
+                                      f"{_early_stop_threshold:.6f} for "
+                                      f"{_early_stop_patience} evals)")
+                                _early_stopped = True
+                        else:
+                            _early_stop_counter = 0
+
+                history["grad_norm_sq"].append(avg_grad_norm_sq)
+                history["grad_norm_sq_clipped"].append(avg_grad_norm_sq_clipped)
+                history["clipping_active"].append(frac_clipped)
                 history["steps"].append(step)
-                
-                pbar.set_postfix({
-                    "train_loss": f"{avg_train_loss:.4f}",
-                    "first_loss": f"{avg_first_loss:.4f}",
+
+                if record_dissipation:
+                    history["q_work"].append(running_q_work)
+                    history["q_update"].append(running_q_update)
+                    history["eta_eff"].append(running_eta_eff_sum / n_batches)
+
+                _postfix = {
+                    "loss": f"{avg_train_loss:.4f}",
+                    "1st": f"{avg_first_loss:.4f}",
                     "z_shuf": f"{loss_z_shuffled_val:.4f}",
-                    "train_acc": f"{avg_train_acc:.2%}",
-                })
-                
+                    "acc": f"{avg_train_acc:.2%}",
+                    "gnorm": f"{math.sqrt(avg_grad_norm_sq):.2f}",
+                }
+                if _cand_loss_val is not None:
+                    _postfix["cand"] = f"{_cand_loss_val:.4f}"
+                    _postfix["cacc"] = f"{_cand_acc_val:.2%}"
+                pbar.set_postfix(_postfix)
+
                 running_loss = 0.0
                 running_acc = 0.0
                 running_first_loss = 0.0
+                running_grad_norm_sq = 0.0
+                running_grad_norm_sq_clipped = 0.0
+                running_clip_count = 0
                 n_batches = 0
-            
-            # Checkpoint periodically
+                if record_dissipation:
+                    running_q_work = 0.0
+                    running_q_update = 0.0
+                    running_eta_eff_sum = 0.0
+
+            # ---- Checkpointing ----
             if step % cfg.training.checkpoint_every == 0:
-                # Get current metrics
                 if history["train_loss"]:
-                    train_loss = history["train_loss"][-1]
-                    train_acc = history["train_accuracy"][-1]
+                    _ckpt_loss = history["train_loss"][-1]
+                    _ckpt_acc = history["train_accuracy"][-1]
                 else:
-                    train_loss = loss.item()
-                    train_acc = current_train_acc
-                
+                    _ckpt_loss = loss.item()
+                    _ckpt_acc = current_train_acc
+
                 save_checkpoint(
                     model=model,
                     optimizer=optimizer,
                     step=step,
-                    train_loss=train_loss,
-                    train_accuracy=train_acc,
+                    train_loss=_ckpt_loss,
+                    train_accuracy=_ckpt_acc,
                     checkpoint_dir=checkpoint_dir,
                 )
-                
-                # Save training history periodically (for interrupted runs)
+
+                if callbacks.on_checkpoint is not None:
+                    callbacks.on_checkpoint(model=model, optimizer=optimizer,
+                                            step=step, history=history)
+
                 history_path = output_dir / cfg.experiment.name / "training_history.json"
                 history_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(history_path, "w") as f:
                     json.dump(history, f, indent=2)
-            
+
             pbar.update(1)
-    
+
     pbar.close()
-    
-    # Final checkpoint
+
+    if _early_stopped:
+        history["early_stopped"] = True
+        history["early_stopped_step"] = step
+
+    # ---- Final checkpoint ----
     final_train_loss = history["train_loss"][-1] if history["train_loss"] else 0.0
     final_train_acc = history["train_accuracy"][-1] if history["train_accuracy"] else 0.0
     save_checkpoint(
@@ -348,11 +537,10 @@ def train(
         train_accuracy=final_train_acc,
         checkpoint_dir=checkpoint_dir,
     )
-    
-    # Save training history
+
     history_path = output_dir / cfg.experiment.name / "training_history.json"
     history_path.parent.mkdir(parents=True, exist_ok=True)
     with open(history_path, "w") as f:
         json.dump(history, f, indent=2)
-    
+
     return history

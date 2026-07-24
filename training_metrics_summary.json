@@ -1,0 +1,68 @@
+{
+  "Transformer_K10": {
+    "final_first_target_loss": 0.03674181498587131,
+    "transition_step": 2400,
+    "converged": true,
+    "threshold": 1.151292546497023
+  },
+  "Transformer_K20": {
+    "final_first_target_loss": 0.18955349132418634,
+    "transition_step": 12450,
+    "converged": true,
+    "threshold": 1.4978661367769954
+  },
+  "Transformer_K36": {
+    "final_first_target_loss": 3.541655716896057,
+    "transition_step": null,
+    "converged": false,
+    "threshold": 1.791759469228055
+  },
+  "Gated MLP_K10": {
+    "final_first_target_loss": 0.0021754604065790774,
+    "transition_step": 1400,
+    "converged": true,
+    "threshold": 1.151292546497023
+  },
+  "Gated MLP_K20": {
+    "final_first_target_loss": 0.06450972430408002,
+    "transition_step": 3050,
+    "converged": true,
+    "threshold": 1.4978661367769954
+  },
+  "Gated MLP_K36": {
+    "final_first_target_loss": 0.5558124315738678,
+    "transition_step": 8500,
+    "converged": true,
+    "threshold": 1.791759469228055
+  },
+  "Gated MLP_K100": {
+    "final_first_target_loss": 2.980701551437378,
+    "transition_step": null,
+    "converged": false,
+    "threshold": 2.302585092994046
+  },
+  "RNN_K10": {
+    "final_first_target_loss": 0.0002183724450878799,
+    "transition_step": 1950,
+    "converged": true,
+    "threshold": 1.151292546497023
+  },
+  "RNN_K20": {
+    "final_first_target_loss": 0.07028170347213746,
+    "transition_step": 4450,
+    "converged": true,
+    "threshold": 1.4978661367769954
+  },
+  "RNN_K36": {
+    "final_first_target_loss": 0.33385669767856596,
+    "transition_step": 9900,
+    "converged": true,
+    "threshold": 1.791759469228055
+  },
+  "RNN_K100": {
+    "final_first_target_loss": 1.969957480430603,
+    "transition_step": 63400,
+    "converged": true,
+    "threshold": 2.302585092994046
+  }
+}

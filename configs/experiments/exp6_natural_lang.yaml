@@ -1,0 +1,26 @@
+# Experiment 6: Natural Language (Controlled Entity Disambiguation)
+# Template config — K is overridden per run by the orchestrator.
+defaults:
+  - ../base
+
+experiment:
+  name: "exp6_natural_lang"
+  seed: 42
+
+data:
+  n_unique_b: 50
+  k: 20
+  task: "bz_to_a"
+  b_length: 6
+  a_length: 6
+  z_length: 6
+
+training:
+  batch_size: 128
+  learning_rate: 1e-3
+  weight_decay: 0.01
+  max_steps: 30000
+  warmup_steps: 500
+  scheduler: "cosine"
+  checkpoint_every: 100
+  eval_every: 50

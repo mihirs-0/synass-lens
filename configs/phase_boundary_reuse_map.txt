@@ -1,0 +1,2 @@
+pb_K20_lr2e-3_s42	lr_sweep_eta2e-3
+pb_K36_lr1e-3_s42	landauer_dense_k36

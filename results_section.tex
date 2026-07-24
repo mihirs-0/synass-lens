@@ -1,0 +1,102 @@
+\section{Experimental Results}
+
+We train a small autoregressive Transformer ($L{=}4$ layers, $H{=}4$ heads, $d_\text{model}{=}128$) on the surjective task $f: \mathcal{A} \to \mathcal{B}$ described in Section~2, with $|\mathcal{B}| = 1000$ groups and ambiguity $K \in \{2, 3, 5, 10, 15, 20, 25, 36\}$. The model receives sequences $[\texttt{BOS}, B, \texttt{SEP}, z, \texttt{SEP}, A, \texttt{EOS}]$ and is trained autoregressively to predict $A$. Unless otherwise stated, we use AdamW with learning rate $10^{-3}$, batch size 128, and gradient clipping at norm 1.0. All tokens are drawn from a character-level vocabulary with fixed-length $B$, $z$, and $A$ strings.
+
+We instrument training with three mechanistic probes evaluated at checkpoints: (i)~attention weight from $A$-positions to the $z$-token, (ii)~a logit lens projecting intermediate-layer residual streams to the output vocabulary via $\mathbf{W}_U$, and (iii)~a $z$-shuffle diagnostic that randomly permutes $z$ across the batch while holding $(B, A)$ fixed.
+
+\subsection{Two-Phase Learning Dynamics}
+
+Figure~\ref{fig:loss_curves} presents the first-target-token loss for representative values of $K$. In every run, training proceeds in two sharply separated phases:
+
+\begin{enumerate}
+    \item \textbf{Marginal phase.} The loss drops rapidly from its initial value to a plateau at $\approx \log K$ nats within the first few hundred steps. During this phase, the model assigns uniform probability $1/K$ over the $K$ candidates in $f^{-1}(b)$, effectively learning the group prior $P(A \mid B)$. The $z$-shuffle diagnostic confirms that shuffling $z$ across the batch produces no measurable loss increase: the model's predictions are independent of $z$.
+
+    \item \textbf{Conditional phase.} After a prolonged plateau, the loss undergoes a sharp, roughly sigmoidal decline toward zero. This transition marks the onset of disambiguation---the model begins using $z$ to select the correct preimage. The $z$-shuffle loss simultaneously spikes from ${\approx}\,0$ to ${\gg}\,\log K$ (e.g., exceeding 15 nats for $K{=}10$), confirming that the model has become causally dependent on $z$.
+\end{enumerate}
+
+The duration of the plateau grows monotonically with $K$: for $K{=}5$ the transition begins at step ${\sim}950$; for $K{=}10$, at step ${\sim}2{,}400$; for $K{=}20$, at step ${\sim}12{,}500$; and for $K{=}36$, the model requires $>30{,}000$ steps, transitioning only around step ${\sim}49{,}000$ in an extended 60K-step run. Crucially, the plateau loss converges tightly to $\log K$ nats in every case---the exact conditional entropy $H(A \mid B)$---confirming that the metastable state corresponds to the information-theoretically optimal group-uniform predictor, not a random saddle.
+
+\subsection{Mechanistic Probes: Anatomy of the Phase Transition}
+
+Figure~\ref{fig:dashboard} shows the three probes for a representative $K{=}20$ run.
+
+\paragraph{Attention to $z$.}
+During the marginal phase, the attention weight assigned to $z$ from $A$-positions is uniformly low across all layers (${\sim}0.03$, consistent with near-uniform attention over the context). At the onset of the conditional phase, attention to $z$ rises sharply in the upper layers: Layer~1 attention increases from 0.03 to 0.06 over a narrow window coinciding with the loss transition, while Layer~0 remains flat. This confirms that the model must learn context-dependent routing through the value matrices, and that this routing emerges abruptly rather than gradually.
+
+\paragraph{Logit lens.}
+During the plateau, $P(\text{correct token})$ is at chance ($1/K$) at every layer, including the final one. As the conditional phase begins, $P(\text{correct})$ rises first in the deepest layers and propagates backward: Layer~4 reaches $P(\text{correct}) > 0.5$ approximately 2{,}000 steps before Layer~3, while Layer~2 remains below 0.2 even after convergence. The embedding layer never exceeds chance. This layerwise cascade indicates that disambiguation is computed progressively through the depth of the network, with deeper layers resolving the binding first.
+
+\paragraph{$z$-shuffle diagnostic.}
+We define the \emph{$z$-gap} as $\Delta_z \equiv \mathcal{L}_{z\text{-shuffled}} - \mathcal{L}_\text{clean}$. The $z$-gap is identically zero during the plateau and rises to large values ($10$--$17$ nats for $K{=}10$) during the transition. This causal, model-agnostic measure of $z$-dependence transitions over a narrow step window, consistent with the symmetry-breaking interpretation of Section~2.4.
+
+\subsection{Gradient Dissipation Scales with $\log K$}
+
+The core quantitative prediction of Section~2.4 is that the excess stochastic gradient work---the dissipation $Q$---required to cross the disambiguation barrier scales as $Q \propto \log K$. We test this by computing the cumulative dissipation
+\[
+Q(t) = \sum_{s=0}^{t} \eta(s) \, \|\nabla \mathcal{L}(s)\|^2 \, \Delta s
+\]
+where $\eta(s)$ is the learning rate and $\|\nabla \mathcal{L}(s)\|^2$ the squared gradient norm at step $s$, both measured at every checkpoint.
+
+\paragraph{$Q$ is not trivially proportional to loss descent.}
+A potential objection is that $Q$ simply tracks the total loss decrease $\Delta \mathcal{L}$. Figure~\ref{fig:tautology}A directly tests this: we plot $Q_{\Delta_z}$ (the cumulative dissipation over the $z$-gap window, where the model transitions from ignoring $z$ to relying on it) against $\Delta \mathcal{L}_{\Delta_z}$ (the loss decrease over the same window). If $Q$ were trivially proportional to $\Delta \mathcal{L}$, the data would lie on the diagonal. Instead, $Q/\Delta \mathcal{L}$ ranges from $38\times$ ($K{=}10$) to $1{,}848\times$ ($K{=}36$): the vast majority of gradient work during the phase transition does not appear as loss reduction. This excess dissipation---the ``wasted'' gradient energy---is the thermodynamic cost of symmetry breaking.
+
+\paragraph{Excess dissipation scales as $\log K$.}
+Defining the excess dissipation $Q_\text{excess} = Q_{\Delta_z} - \Delta \mathcal{L}_{\Delta_z}$, Figure~\ref{fig:tautology}B shows that $Q_\text{excess}$ scales linearly with $\log K$ ($R^2 = 0.92$, slope $= 121.1$, intercept $= -238.7$). This is the central empirical result: the gradient work required for the symmetry-breaking transition grows proportionally with the $\log K$ nats of conditional information the model must learn to resolve.
+
+\paragraph{Plateau decomposition.}
+We decompose the total dissipation into three components (Figure~\ref{fig:tautology}C): $Q_\text{prior}$ (marginal learning phase), $Q_\text{plateau}$ (metastable plateau), and $Q_\text{transition}$ (disambiguation phase). The marginal-phase dissipation $Q_\text{prior}$ is negligible for all $K$. The plateau dissipation $Q_\text{plateau}$ grows modestly but accounts for an increasing fraction of $Q_\text{total}$ at large $K$ (from 3\% at $K{=}10$ to 43\% at $K{=}36$), reflecting the cost of maintaining the gradient signal against cancellation during the prolonged metastable state. The transition dissipation $Q_\text{transition}$ dominates and scales with $\log K$ ($R^2 = 0.92$).
+
+\paragraph{Regime-aware fit.}
+A piecewise model $Q = c \cdot \log(K / K^*)$ for $K > K^*$ (and $Q = 0$ otherwise) yields a sharp threshold at $K^* \approx 7.1$, above which the logarithmic scaling holds cleanly (Figure~\ref{fig:tautology}D; $R^2 = 0.92$, slope $c = 120.3$). Below $K^*$, the disambiguation problem is easy enough that the plateau is undetectable and dissipation is negligible.
+
+\subsection{The Linear Capacity Failure: A Negative Control}
+
+Section~2.2 argues that the disambiguation lag arises because additive attention mechanisms must implement a rank-$K$ multiplicative interaction. If this is correct, a purely linear model---which can only implement additive functions of $B$ and $z$---should be \emph{permanently} unable to disambiguate, not merely delayed.
+
+We test this with a two-layer linear network $\mathbf{y} = \mathbf{W}_2 \mathbf{W}_1 [\mathbf{e}_B; \mathbf{e}_z]$ (no nonlinearity, no attention) trained on the same task for 30{,}000 steps at $K \in \{10, 20, 36\}$. Figure~\ref{fig:linear} confirms the prediction: the candidate loss converges to exactly $\log K$ and remains there indefinitely. The $z$-gap never exceeds 0.002 nats---the model ignores $z$ completely. The squared gradient norm decays monotonically to near zero, indicating the model has settled into the group-uniform fixed point with no indication of an impending transition.
+
+This result eliminates the alternative hypothesis that the disambiguation lag is a generic consequence of high-dimensional optimisation. The lag is specific to models with sufficient representational capacity to eventually solve the binding problem; the linear model lacks this capacity entirely and converges to the group-mean predictor as its \emph{global optimum}. The two-phase dynamics are thus a signature of the model class navigating around a topological barrier, not of optimisation difficulty per se.
+
+\subsection{Architecture Ablation: Transformer vs.\ Gated MLP vs.\ LSTM}
+
+To determine whether the disambiguation lag is specific to the Transformer's additive attention mechanism or a more general phenomenon, we train two alternative architectures on the same task across $K \in \{10, 15, 20, 25, 36, 50, 75, 100\}$:
+
+\begin{itemize}
+    \item \textbf{Gated MLP.} Processes $B$ and $z$ through separate MLP pathways and combines them via explicit element-wise multiplicative gating: $\mathbf{h}_\text{gate} = \text{LayerNorm}(\mathbf{h}_B \odot \mathbf{h}_z)$. This architecture has the native multiplicative interaction that Section~2.2 identifies as necessary for disambiguation, but no attention and no recurrence.
+    \item \textbf{LSTM.} A two-layer stacked LSTM that processes the sequence left-to-right. The $(B, z)$ interaction must emerge implicitly through the nonlinear hidden-state dynamics as $B$ tokens are processed before $z$ tokens modulate the representation.
+\end{itemize}
+
+\paragraph{All three architectures exhibit the two-phase dynamics.}
+Figure~\ref{fig:arch_comparison} shows that the Gated MLP and LSTM both display the same qualitative signature: rapid convergence to $\log K$, a metastable plateau, and a sharp phase transition. This establishes that the disambiguation lag is not specific to attention---it arises in any architecture that must learn to bind $z$ to the correct preimage within $f^{-1}(b)$.
+
+\paragraph{Architectures differ in plateau duration.}
+For a given $K$, the Gated MLP transitions fastest (e.g., step ${\sim}3{,}050$ at $K{=}20$), the LSTM is intermediate (${\sim}4{,}450$), and the Transformer is slowest (${\sim}12{,}450$). At $K{=}36$, the Transformer fails to transition within 30K steps while the Gated MLP and LSTM both converge. The Gated MLP's advantage is expected: its architecture provides the multiplicative $(B \times z)$ interaction natively, reducing the problem from learning the interaction to merely parameterising it.
+
+\paragraph{Dissipation scaling differs across architectures.}
+While all three architectures show $Q$ increasing with $K$, the functional form of the scaling differs (Figure~\ref{fig:arch_comparison}B). The Transformer's dissipation is well-described by $Q \propto \log K$ ($R^2 = 0.97$), consistent with the gradient-cancellation analysis of Section~2.3 where the barrier height is set by the information content of the disambiguation. The Gated MLP and LSTM show steeper scaling better described by a power law ($R^2 > 0.99$), suggesting that while these architectures escape the plateau faster, they pay a higher per-step cost in gradient energy at large $K$.
+
+\subsection{Label Noise as a Probe of the Saddle Geometry}
+
+If the disambiguation plateau is a metastable saddle point maintained by gradient cancellation, then perturbations that break the symmetry of the gradient signal should affect the escape dynamics. We test this by introducing label noise: with probability $p$, the target $A$ for a training example is replaced by a uniformly random element of $f^{-1}(b)$ (i.e., a different member of the same group). We fix $K{=}20$ and vary $p \in \{0, 0.05, 0.10, 0.20\}$.
+
+\paragraph{Low noise accelerates the phase transition.}
+Figure~\ref{fig:noise} shows that moderate label noise ($p = 0.05$ and $p = 0.10$) causes the model to exit the plateau ${\sim}2{,}000$ steps earlier than the clean baseline ($p{=}0$): the transition step shifts from ${\sim}12{,}450$ to ${\sim}10{,}400$, and the $z$-gap onset from step ${\sim}9{,}250$ to ${\sim}7{,}500$. This is consistent with the saddle-point interpretation: the corrupted gradients provide stochastic perturbations that help the model explore directions away from the symmetric fixed point, accelerating the symmetry-breaking process.
+
+\paragraph{High noise degrades the disambiguation signal.}
+At $p = 0.20$, the acceleration is largely abolished (transition at step ${\sim}11{,}700$; $z$-gap onset at step ${\sim}9{,}000$). The final $z$-gap is also reduced (12.4 nats vs.\ 15.0 for the baseline), indicating that heavy noise corrupts the very signal the model needs to learn the $(B, z) \to A$ mapping. This non-monotonic pattern---where low noise helps and high noise hurts---is characteristic of escape from a metastable saddle and is inconsistent with the hypothesis that the plateau is simply due to slow learning. A slow learner would be uniformly slowed by noise; a model trapped at a saddle benefits from perturbation until the perturbation overwhelms the signal.
+
+\paragraph{All noise levels converge.}
+Despite the differences in transition timing, all four noise levels reach comparable final loss (${\sim}0.17$--$0.19$ nats), confirming that the noise acts on the \emph{dynamics} of saddle escape rather than on the model's asymptotic capacity.
+
+\subsection{Summary}
+
+Across all experiments, we observe:
+\begin{enumerate}
+    \item A robust two-phase learning dynamic---rapid marginal learning followed by a metastable plateau at exactly $\log K$ nats---that holds across architectures.
+    \item A sharp phase transition where all mechanistic signatures (attention to $z$, logit lens $P(\text{correct})$, $z$-gap) transition in a narrow, coordinated window.
+    \item Excess gradient dissipation during the transition that scales as $Q \propto \log K$, quantitatively matching the information-theoretic cost of disambiguation.
+    \item Complete failure of the linear model to escape the plateau, confirming the multiplicative capacity requirement.
+    \item Universal two-phase dynamics across Transformer, Gated MLP, and LSTM architectures, with architecture-dependent plateau duration and dissipation scaling.
+    \item Non-monotonic sensitivity to label noise, confirming the metastable saddle-point geometry of the plateau.
+\end{enumerate}
+Together, these results establish the disambiguation lag as a fundamental geometric barrier in conditional binding, not an optimisation quirk, and validate the theoretical framework of Section~2.

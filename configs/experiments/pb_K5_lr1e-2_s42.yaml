@@ -1,0 +1,48 @@
+# Phase boundary: K=5, η=1e-2, seed=42
+experiment:
+  name: "pb_K5_lr1e-2_s42"
+  seed: 42
+
+data:
+  n_unique_b: 1000
+  k: 5
+  task: "bz_to_a"
+  b_length: 6
+  a_length: 4
+  z_length: 2
+  vocab_chars: "abcdefghijklmnopqrstuvwxyz0123456789"
+  probe_fraction: 0.0
+  split_by_base: true
+  enforce_unique_a_first_char_per_b: true
+  disambiguation_prefix_length: 1
+
+tokenizer:
+  pad_token: "<PAD>"
+  bos_token: "<BOS>"
+  eos_token: "<EOS>"
+  sep_token: "<SEP>"
+
+model:
+  n_layers: 4
+  n_heads: 4
+  d_model: 128
+  d_head: 32
+  d_mlp: 512
+  act_fn: "gelu"
+
+training:
+  batch_size: 128
+  learning_rate: 0.01
+  weight_decay: 0.01
+  max_steps: 200000
+  warmup_steps: 0
+  scheduler: "constant"
+  checkpoint_every: 999999
+  eval_every: 50
+  early_stop_convergence_frac: 0.01
+
+probes:
+  enabled: []
+
+output:
+  base_dir: "outputs"

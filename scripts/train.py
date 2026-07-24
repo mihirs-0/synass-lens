@@ -99,6 +99,12 @@ def main(cfg: DictConfig):
     with open(config_path, "w") as f:
         f.write(OmegaConf.to_yaml(cfg))
     
+    # Disable gradient clipping for constant-LR experiments (Landauer)
+    _grad_clip = 1.0
+    scheduler_type = getattr(cfg.training, "scheduler", "cosine")
+    if scheduler_type == "constant":
+        _grad_clip = None
+
     # Train!
     history = train(
         model=model,
@@ -106,6 +112,9 @@ def main(cfg: DictConfig):
         probe_loader=probe_loader,
         cfg=cfg,
         output_dir=output_dir,
+        grad_clip=_grad_clip,
+        mapping_data=mapping_data,
+        tokenizer=tokenizer,
     )
     
     print("\n" + "=" * 60)

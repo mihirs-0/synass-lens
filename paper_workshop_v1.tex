@@ -1,0 +1,706 @@
+\documentclass{article}
+
+% NeurIPS 2026 workshop style
+\usepackage[final,nonatbib]{neurips_2024}  % use neurips_2024 as base; replace with neurips_2026 when available
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{multirow}
+\usepackage{subcaption}
+\usepackage{natbib}
+
+\bibliographystyle{abbrvnat}
+
+\newcommand{\Kcal}{\mathcal{K}}
+\newcommand{\nats}{\,\text{nats}}
+
+\title{Phase Boundaries of Circuit Discovery in Neural Networks}
+
+\author{
+  Mihir Sahasrabudhe \\
+  School of Information Sciences \\
+  University of Illinois Urbana-Champaign \\
+  \texttt{mihirrs2@illinois.edu}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+When transformers learn surjective mappings $(B, z) \to A$ with $K$-fold ambiguity, training exhibits a metastable plateau at loss $\log K$ followed by a sharp phase transition---the \emph{disambiguation lag}.
+We map the $(K, \eta)$ phase diagram under AdamW and identify a practical learnability boundary separating fast convergence from critical slowing down.
+The phase boundary scales as $\eta^*(K) \propto K^{-0.83}$ ($R^2 = 0.96$), and within the discoverable region the waiting time scales as $\tau \propto K^{1.31}$ ($R^2 = 0.98$).
+The power-law scaling $\tau \propto K^\alpha$ holds across three architectures (Transformer $\alpha{=}1.70$, Gated MLP $\alpha{=}1.62$, RNN $\alpha{=}1.47$; all $R^2 {>} 0.96$).
+A batch-size control disentangles gradient noise from step size, showing that \emph{increased} noise delays the transition---opposite to Kramers-type thermal escape.
+Post-hoc weight analysis reveals that the plateau is a random walk in weight space (direction consistency ${\approx}0$) that snaps into coherent descent at $\tau$; a synergistic $z$-dependence signal precedes the loss transition by ${\sim}50\%$ of $\tau$ across all $K$.
+Per-group evaluation falsifies a coverage explanation: at $\tau/2$, zero groups are individually solved---all $K$ bindings snap together collectively.
+These results identify an empirical optimization-geometric constraint on compositional generalization at the tested model scale.
+\end{abstract}
+
+
+%==============================================================================
+\section{Introduction}
+%==============================================================================
+
+Large language models fail at tasks requiring contextual selection among competing associations.
+The reversal curse~\citep{berglund2024reversal} and factorization curse~\citep{kitouni2024factorization} show that variable-binding operations resist learning even when data and capacity suffice.
+Mitigations like bidirectional augmentation~\citep{lv2024bico} and reverse training~\citep{golovneva2024reverse} address the symptom, but the underlying optimization dynamics remain poorly understood.
+
+We propose that the barrier is \emph{optimization-geometric}: the target circuit occupies a narrow basin whose accessibility shrinks with the combinatorial complexity $K$ of the binding.
+We construct a synthetic task with a single control parameter $K$ and map the $(K, \eta)$ phase diagram under AdamW at a fixed model scale.
+We report five findings: (1)~the plane partitions into two regimes---fast convergence and critical slowing down---separated by a practical learnability boundary $\eta^*(K) \propto K^{-0.83}$ (\S\ref{sec:phase-diagram}); (2)~$\tau \propto K^{1.31}$ in the discoverable region (\S\ref{sec:dynamics}); (3)~the power-law holds across three architectures (\S\ref{sec:architecture}); (4)~a batch-size control cleanly disentangles noise and step size, falsifying thermal escape (\S\ref{sec:batch-size}); (5)~a synergistic $z$-dependence signal leads the loss transition by ${\sim}50\%$ of $\tau$, while weight displacement analysis reveals the plateau as a random walk that snaps into coherent descent at the transition (\S\ref{sec:discussion}); and (6)~per-group evaluation falsifies a coverage/signal-dilution explanation: the transition is collective, not gradual (\S\ref{sec:discussion}).
+
+
+%==============================================================================
+\section{The Disambiguation Task}
+\label{sec:task}
+%==============================================================================
+
+We define a surjective map $f: \mathcal{A} \to \mathcal{B}$ with $|\mathcal{B}| = 1000$ base strings and constant fiber size $|f^{-1}(b)| = K$.
+Each fiber is indexed by a selector $z \in \{1, \ldots, K\}$, making $(b, z) \mapsto a$ one-to-one.
+The model receives $[\texttt{BOS}, B, \texttt{SEP}, z, \texttt{SEP}]$ and predicts the 4-character target $A$ autoregressively.
+The conditional entropy $H(A \mid B) = \log K$; $H(A \mid B, z) = 0$.
+Two-layer linear networks converge to $\log K$ permanently with zero $z$-dependence, confirming that disambiguation requires multiplicative capacity.
+
+We train a 4-layer Transformer ($d_\text{model} = 128$, 4 heads, $d_\text{mlp} = 512$; ${\sim}600$K parameters) with AdamW~\citep{loshchilov2019adamw}, batch size 128, cosine warmup, via TransformerLens~\citep{nanda2022transformerlens}.
+Training budgets are 10k--50k steps (up to 100k for $K{=}36$).
+The key diagnostic is the \emph{$z$-shuffle gap}: permuting $z$ across the batch while holding $(B, A)$ fixed measures $\Delta_z = \mathcal{L}_{z\text{-shuffle}} - \mathcal{L}_\text{clean}$; during the plateau $\Delta_z = 0$, after the transition $\Delta_z \gg \log K$.
+
+
+%==============================================================================
+\section{The Phase Diagram}
+\label{sec:phase-diagram}
+%==============================================================================
+
+\subsection{Two-phase dynamics}
+
+Every run with $K > 1$ exhibits two sharply separated phases.
+In the \emph{marginal phase}, loss drops to $\approx \log K\nats$ within a few hundred steps ($\Delta_z = 0$).
+After a prolonged plateau, the \emph{conditional phase} begins: loss undergoes a sharp sigmoidal decline as the model discovers the binding circuit.
+
+\subsection{The $(K, \eta)$ phase diagram}
+\label{sec:phase-boundary}
+
+We conduct 51 training runs spanning $K \in \{5, 10, 20, 36\}$, multiple $\eta$ per $K$, and 3 seeds per pair.
+Runs are classified as \emph{success} (loss below $\log K$) or \emph{failure} (no transition within the training budget).%
+\footnote{The ``unreachable'' designation is budget-relative; a long-enough run might transition. However, the $\eta{=}2{\times}10^{-3}$, $K{=}20$ run had not fully converged after 50k steps ($\tau \approx 22{,}500$), suggesting the boundary is meaningful.}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\textwidth]{outputs/paper_figures/fig_phase_diagram.pdf}
+  \caption{\textbf{The $(K, \eta)$ phase diagram.} Two regimes: \textcolor{green!60!black}{\textbf{fast convergence}} (all seeds succeed) and \textcolor{red!70!black}{\textbf{critical slowing down}} (near boundary, $\tau$ diverges; \textcolor{orange!80!black}{\textbf{partial convergence}} reflects finite training budget, not failed transitions). Dashed: $\eta^*(K) = 0.048 \cdot K^{-0.83}$.}
+  \label{fig:phase-diagram}
+\end{figure}
+
+Figure~\ref{fig:phase-diagram} reveals two regimes separated by a practical learnability boundary.
+The boundary is well-described by $\eta^*(K) = 0.048 \cdot K^{-0.83}$ ($R^2 = 0.96$, $\delta = 0.83 \pm 0.16$), where $\eta^*$ is the geometric mean of the highest all-succeed and lowest any-fail learning rates (Appendix~\ref{app:matrix}).
+
+\subsection{Dynamics inside the discoverable region}
+\label{sec:dynamics}
+
+At fixed $\eta = 10^{-3}$, we measure $\tau$ across $K \in \{3, 5, 7, 10, 13, 17, 20, 25, 30, 36\}$:
+\begin{equation}
+  \tau \propto K^{1.31}, \quad R^2 = 0.983, \quad \text{LOO range: } [1.27, 1.36]
+  \label{eq:tau}
+\end{equation}
+Near the boundary, $\tau$ diverges: at $K{=}36$, increasing $\eta$ from $10^{-3}$ to $2{\times}10^{-3}$ increases $\bar{\tau}$ by $6.3\times$.
+Near the boundary the transition becomes seed-dependent, consistent with critical slowing down: $\tau$ varies across seeds and some runs exhaust their budget before completing.
+Smoothed trajectory analysis (Appendix~\ref{app:forensics}) confirms that once initiated, the transition is irreversible---no run reverts to the plateau after breaching $50\%$ of $\log K$.
+
+
+\begin{figure}[t]
+  \centering
+  \begin{subfigure}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{outputs/paper_figures/fig_phase_boundary_trajectories.pdf}
+    \caption{Loss trajectories for $K{=}36$ near the boundary.}
+    \label{fig:trajectories}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{outputs/paper_figures/fig_landauer_dense.pdf}
+    \caption{$\tau$ vs.\ $K$ at $\eta = 10^{-3}$ with power-law fit $\tau \propto K^{1.31}$.}
+    \label{fig:tau-scaling}
+  \end{subfigure}
+  \caption{\textbf{Dynamics near and within the discoverable region.}}
+  \label{fig:dynamics}
+\end{figure}
+
+
+%==============================================================================
+\section{Controls and Falsifications}
+\label{sec:controls}
+%==============================================================================
+
+\paragraph{Not gradient cancellation.}
+Varying the number of interfering groups $G$ from 1 to 1000 at $K{=}20$ yields exponent $\beta \approx 0.02$ (predicted ${\approx}1$): $\tau$ is invariant to sharing structure.
+
+\paragraph{Not Kramers-type thermal escape.}
+If the plateau were a free-energy trap, larger $\eta$ (more noise) should facilitate escape.
+The opposite holds: $\tau$ increases monotonically with $\eta$ (at $K{=}20$: $\tau = 2{,}100$ at $\eta = 3{\times}10^{-4}$; $22{,}500$ at $2{\times}10^{-3}$; diverges at $5{\times}10^{-3}$; Appendix~\ref{app:lrsweep}).
+
+\paragraph{Batch-size disentanglement.}
+\label{sec:batch-size}
+A potential objection is that $\eta$ conflates noise scale and step size~\citep{smith2018dont}.
+We sweep $B \in \{64, 128, 256, 512\}$ at fixed $\eta = 10^{-3}$, varying noise ($\propto 1/\sqrt{B}$) without changing step size.
+At $K{=}20$: $B{=}64$ fails; $B{=}128 \to \tau{=}6{,}500$; $B{=}256 \to 3{,}600$; $B{=}512 \to 1{,}850$.
+At $K{=}36$: $B{=}64$ fails; $B{=}128 \to 22{,}900$; $B{=}512 \to 5{,}300$ (Appendix~\ref{app:batchsize}).
+Less noise $\Rightarrow$ faster transition---opposite to Kramers.
+At matched SGD temperature $T{=}\eta/B$, larger step size converges $2.2\times$ faster ($B{=}256, \eta{=}10^{-3}$: $\tau{=}3{,}600$ vs.\ $B{=}128, \eta{=}5{\times}10^{-4}$: $\tau{=}7{,}750$).
+
+\paragraph{Architecture universality.}
+\label{sec:architecture}
+All three nonlinear architectures (Transformer, LSTM, Gated MLP) exhibit two-phase dynamics (Figure~\ref{fig:architectures}a).
+Critically, all display power-law scaling $\tau \propto K^\alpha$: Transformer $\alpha{=}1.70$ ($R^2{=}0.97$, $K {\in} [3, 30]$), Gated MLP $\alpha{=}1.62$ ($R^2{=}0.97$, $K {\in} [10, 50]$), RNN $\alpha{=}1.47$ ($R^2{=}0.98$, $K {\in} [10, 100]$).
+The universality of the power-law form---despite different exponents and prefactors---suggests the phase boundary reflects task geometry rather than architecture-specific properties.
+
+\begin{figure}[t]
+  \centering
+  \begin{subfigure}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{outputs/paper_figures/fig_arch_comparison.pdf}
+    \caption{Loss trajectories at $K{=}20$ for three architectures.}
+    \label{fig:arch-comp}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{outputs/paper_figures/fig_cross_arch_tau.pdf}
+    \caption{$\tau$ vs.\ $K$ on log-log axes with power-law fits.}
+    \label{fig:cross-arch-tau}
+  \end{subfigure}
+  \caption{\textbf{Architecture controls.} (a)~Two-phase dynamics are universal. (b)~$\tau \propto K^\alpha$ holds for each architecture. Linear models converge to $\log K$ permanently (Appendix~\ref{app:linear}).}
+  \label{fig:architectures}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \begin{subfigure}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{outputs/paper_figures/fig_synergy_proxy_panel_b.pdf}
+    \caption{Synergy onset precedes loss onset across all $K$.}
+    \label{fig:synergy-leads}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{outputs/paper_figures/fig_displacement_panel_d.pdf}
+    \caption{Direction consistency of weight updates.}
+    \label{fig:direction-consistency}
+  \end{subfigure}
+  \caption{\textbf{Post-hoc analyses.} (a)~$\Delta_z$ onset vs.\ loss onset; all points below identity ($\Delta t_\text{lead} {\propto} K^{2.13}$, $R^2{=}0.99$). (b)~Cosine similarity of consecutive weight deltas: the plateau is a random walk ($\cos\theta {\approx} 0$) that snaps into directed descent at $\tau$.}
+  \label{fig:posthoc}
+\end{figure}
+
+\paragraph{Synergy cascade and circuit formation.}
+The $z$-shuffle gap $\Delta_z$ rises \emph{before} the loss transition across all $K$ values (Appendix~\ref{app:synergy}).
+The lead time scales as $\Delta t_\text{lead} \propto K^{2.13}$ ($R^2 {=} 0.99$), with a mean lead fraction of $0.52 \pm 0.14$ of $\tau_\text{loss}$ (Figure~\ref{fig:posthoc}a).
+Per-head probing at $K{=}20$ reveals a three-stage cascade: head L1H3 begins attending to $z$ at step 500, the aggregate $\Delta_z$ exceeds $0.1\nats$ at step 2{,}750, and loss drops at step 8{,}700.
+The individual circuit signal precedes the aggregate information-theoretic signal by ${\sim}2{,}200$ steps.
+
+
+%==============================================================================
+\vspace{-3pt}
+\section{Discussion}
+\label{sec:discussion}
+\vspace{-2pt}
+%==============================================================================
+
+\paragraph{Connection to the reversal curse.}
+In the reversal curse, ``$B \to A$'' has fan-in $K$ while ``$A \to B$'' is one-to-one; our results predict the backward mapping requires ${\sim}K^{1.3}$--$1.7\times$ more training.
+The compositionality gap~\citep{press2023measuring} and autoregressive biases~\citep{mccoy2023embers} may interact with the phase boundary in natural-language settings.
+
+\paragraph{Hidden progress and weight dynamics.}
+Both grokking~\citep{power2022grokking, nanda2023progress} and our task exhibit metastable plateaus before sharp transitions, but our task provides a continuous control parameter ($K$) and quantitative scaling laws.
+Weight displacement analysis (Appendix~\ref{app:displacement}) confirms the hidden progress picture of~\citet{barak2022hidden}: during the plateau, $\|W(t{+}\Delta) - W(t)\|_F$ is large and approximately constant (${\sim}11$ per 200-step interval at $K{=}20$), but consecutive displacement directions are \emph{uncorrelated} ($\cos\theta \approx 0.04$).
+At $\tau$, direction consistency snaps to ${\sim}0.8$ (Figure~\ref{fig:posthoc}b): the transition is not the onset of weight movement but the onset of \emph{coherent} movement---a threshold crossing where gradient coherence exceeds a critical value and positive feedback locks in directed descent~\citep{chen2024hidden}.
+The irreversibility is confirmed by trajectory forensics (Appendix~\ref{app:forensics}): no near-boundary run that initiates the transition reverts to the plateau.
+Hessian eigenvalue tracking (Appendix~\ref{app:hessian}) reveals the plateau is a \emph{saddle point} ($\lambda_\text{min} < 0$ throughout), not a local minimum---ruling out spinodal decomposition.
+The negative curvature is ${\sim}10^3{\times}$ smaller than $\lambda_\text{max}$, explaining the long random walk; at $\tau$, $\lambda_\text{max}$ spikes $10$--$20{\times}$ as the model descends through a steep canyon.
+
+\paragraph{Connections to recent theory.}
+We tested six theoretical frameworks against our data (Appendices~\ref{app:synergy}--\ref{app:adamw}).
+Synergy-as-order-parameter~\citep{aguilera2024synergy} is strongly supported ($\Delta_z$ onset leads loss with power-law lead time; \S\ref{sec:controls}).
+Weight norms partially confirm deep grokking~\citep{gromov2024grokking}: total $\|W\|_F$ grows monotonically but L1H3's layer shows non-monotonic behavior (Appendix~\ref{app:weight-norms}).
+OV spectra~\citep{tigges2024cdt} show distributed rank changes; L1H3 maintains high effective rank throughout (Appendix~\ref{app:spectrum}).
+The AdamW timescale~\citep{lyu2025power} anti-correlates with $\tau_\text{trans}$, and within-group variance \emph{increases}---opposite to neural collapse~\citep{rangamani2025neural}---because the model must differentiate $z$ within each $B$-group (Appendices~\ref{app:neural-collapse},~\ref{app:gradient}).
+
+\paragraph{Coverage falsification.}
+A natural null is \emph{signal dilution}: each example teaches one of $K {\times} 1000$ bindings, so $\tau$ reflects coverage time.
+Aggregate scaling is consistent ($\tau \times \bar{g} \propto K^{0.99}$, $R^2 {=} 0.99$; Appendix~\ref{app:signal-dilution}), but per-group $K$-way candidate scoring decisively rejects coverage: at $\tau/2$, zero of 200 $B$-groups exceed $80\%$ accuracy for both $K{=}10$ and $K{=}20$---a step function, not a sigmoid.
+Mean accuracy creeps up uniformly (hidden progress), but no group crosses the threshold until the collective snap at $\tau$.
+The formula $\tau {=} C {\cdot} K/\bar{g}$ ($R^2 {=} 0.995$) works for dimensional reasons: saddle escape time scales with information content divided by signal strength.
+
+\paragraph{Limitations.}
+The boundary fit uses four $K$ values ($<$1 decade; $\delta = 0.83 \pm 0.16$); K-sweep spans $K {\in} [3, 36]$.
+All experiments use AdamW at one model scale (${\sim}600$K params) on a synthetic task; other optimizers, scales, and natural-language data may shift the boundary.
+
+\bibliography{paper_workshop_v1}
+
+\appendix
+\section{Full Phase Boundary Outcome Matrix}
+\label{app:matrix}
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Full outcome matrix.} Success rate (of 3 seeds) and mean $\tau$ per $(K, \eta)$. ``---'' = no convergence.}
+\label{tab:full-matrix}
+\vspace{4pt}
+\small
+\begin{tabular}{@{}cccc@{}}
+\toprule
+$K$ & $\eta$ & Rate & Mean $\tau$ \\
+\midrule
+5  & $5.0 \times 10^{-3}$ & 3/3 & 2{,}850 \\
+5  & $7.0 \times 10^{-3}$ & 3/3 & 3{,}250 \\
+5  & $1.0 \times 10^{-2}$ & 3/3 & 2{,}183 \\
+5  & $1.5 \times 10^{-2}$ & 0/3 & --- \\
+5  & $2.0 \times 10^{-2}$ & 0/3 & --- \\
+\midrule
+10 & $3.0 \times 10^{-3}$ & 3/3 & 5{,}950 \\
+10 & $5.0 \times 10^{-3}$ & 3/3 & 9{,}867 \\
+10 & $7.0 \times 10^{-3}$ & 3/3 & 8{,}533 \\
+10 & $1.0 \times 10^{-2}$ & 1/3 & 5{,}300 \\
+\midrule
+20 & $2.0 \times 10^{-3}$ & 3/3 & 5{,}750 \\
+20 & $3.0 \times 10^{-3}$ & 3/3 & 30{,}300 \\
+20 & $5.0 \times 10^{-3}$ & 2/3 & 22{,}425 \\
+20 & $7.0 \times 10^{-3}$ & 1/3 & 24{,}850 \\
+\midrule
+36 & $1.0 \times 10^{-3}$ & 3/3 & 10{,}867 \\
+36 & $2.0 \times 10^{-3}$ & 2/3 & 68{,}350 \\
+36 & $3.0 \times 10^{-3}$ & 2/3 & 29{,}225 \\
+36 & $5.0 \times 10^{-3}$ & 0/3 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Batch-Size Sensitivity}
+\label{app:batchsize}
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Batch-size sensitivity} at fixed $\eta = 10^{-3}$. ``---'' = no convergence.}
+\label{tab:batch-size}
+\vspace{4pt}
+\small
+\begin{tabular}{@{}cccccc@{}}
+\toprule
+$K$ & $B$ & Noise $\propto 1/\sqrt{B}$ & $T{=}\eta/B$ & $\tau$ (steps) & Conv? \\
+\midrule
+20 & 64  & 0.125 & $1.56 \times 10^{-5}$ & ---    & No \\
+20 & 128 & 0.088 & $7.81 \times 10^{-6}$ & 6{,}500  & Yes \\
+20 & 256 & 0.063 & $3.91 \times 10^{-6}$ & 3{,}600  & Yes \\
+20 & 512 & 0.044 & $1.95 \times 10^{-6}$ & 1{,}850  & Yes \\
+\midrule
+36 & 64  & 0.125 & $1.56 \times 10^{-5}$ & ---    & No \\
+36 & 128 & 0.088 & $7.81 \times 10^{-6}$ & 22{,}900 & Yes \\
+36 & 256 & 0.063 & $3.91 \times 10^{-6}$ & 8{,}650  & Yes \\
+36 & 512 & 0.044 & $1.95 \times 10^{-6}$ & 5{,}300  & Yes \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Dense K-Sweep Results}
+\label{app:ksweep}
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Dense K-sweep} at $\eta = 10^{-3}$, seed 42.}
+\label{tab:ksweep}
+\vspace{4pt}
+\small
+\begin{tabular}{@{}cccc@{}}
+\toprule
+$K$ & $\log K$ (nats) & $\tau$ (steps) & Transition window \\
+\midrule
+3  & 1.10 & 200  & 300--500 \\
+5  & 1.61 & 400  & 700--1{,}100 \\
+7  & 1.95 & 650  & 800--1{,}450 \\
+10 & 2.30 & 850  & 1{,}600--2{,}450 \\
+13 & 2.56 & 1{,}350 & 1{,}800--3{,}150 \\
+17 & 2.83 & 2{,}700 & 2{,}700--5{,}400 \\
+20 & 3.00 & 3{,}400 & 3{,}550--6{,}950 \\
+25 & 3.22 & 4{,}100 & 4{,}700--8{,}800 \\
+30 & 3.40 & 4{,}700 & 5{,}700--10{,}400 \\
+36 & 3.58 & 6{,}350 & 7{,}300--13{,}650 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Learning Rate Sweep at $K{=}20$}
+\label{app:lrsweep}
+
+\begin{table}[h]
+\centering
+\caption{\textbf{LR sweep at $K{=}20$.} $\tau$ increases monotonically with $\eta$; $\eta = 5 \times 10^{-3}$ does not transition within 50k steps.}
+\label{tab:lrsweep}
+\vspace{4pt}
+\small
+\begin{tabular}{@{}ccccc@{}}
+\toprule
+$\eta$ & $\tau$ (steps) & $\eta \cdot \tau$ & $Q_\text{transition}$ & Conv? \\
+\midrule
+$3 \times 10^{-4}$ & 2{,}100 & 0.63 & 11.5 & Yes \\
+$5 \times 10^{-4}$ & 2{,}200 & 1.10 & 13.9 & Yes \\
+$1 \times 10^{-3}$ & 3{,}400 & 3.40 & 22.5 & Yes \\
+$2 \times 10^{-3}$ & 7{,}550 & 15.10 & 44.5 & Yes \\
+$5 \times 10^{-3}$ & --- & --- & --- & No \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Linear Baseline}
+\label{app:linear}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.5\textwidth]{outputs/paper_figures/fig_linear.pdf}
+  \caption{Two-layer linear network at $K \in \{10, 20, 36\}$. Loss converges to $\log K$ permanently; $z$-gap is zero throughout.}
+  \label{fig:linear}
+\end{figure}
+
+
+%==============================================================================
+% Post-hoc experiments connecting to recent theoretical frameworks
+%==============================================================================
+
+\section{Synergy Cascade Analysis}
+\label{app:synergy}
+
+The $z$-shuffle gap $\Delta_z = \mathcal{L}_{z\text{-shuffle}} - \mathcal{L}_\text{clean}$ serves as a proxy for synergistic information~\citep{aguilera2024synergy}.
+We measure onset times for both $\Delta_z > 0.1\nats$ and loss $< 0.9 \log K$ across $K \in \{3, \ldots, 36\}$.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{outputs/paper_figures/fig_synergy_proxy.pdf}
+  \caption{\textbf{Synergy leads loss.} (a)~Normalized loss (solid) and $\Delta_z$ (dashed) for selected $K$. (b)~Synergy onset vs.\ loss onset; all points below identity. (c)~Lead time vs.\ $K$ on log-log axes: $\Delta t_\text{lead} \propto K^{2.13}$ ($R^2 = 0.99$).}
+  \label{fig:synergy-full}
+\end{figure}
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Synergy vs.\ loss onset.} Synergy onset precedes loss onset for all $K$ with mean lead fraction $0.52 \pm 0.14$.}
+\label{tab:synergy}
+\vspace{4pt}
+\small
+\begin{tabular}{@{}cccccc@{}}
+\toprule
+$K$ & $\log K$ & $\tau_\text{loss}$ & $\tau_\text{synergy}$ & Lead (steps) & Lead$/\tau$ \\
+\midrule
+3  & 1.10 & 500    & 400    & 100    & 0.20 \\
+5  & 1.61 & 1{,}100  & 700    & 400    & 0.36 \\
+7  & 1.95 & 1{,}300  & 650    & 650    & 0.50 \\
+10 & 2.30 & 2{,}350  & 1{,}250  & 1{,}100  & 0.47 \\
+13 & 2.56 & 3{,}000  & 1{,}300  & 1{,}700  & 0.57 \\
+17 & 2.83 & 5{,}900  & 2{,}700  & 3{,}200  & 0.54 \\
+20 & 3.00 & 8{,}700  & 3{,}800  & 4{,}900  & 0.56 \\
+25 & 3.22 & 14{,}550 & 5{,}550  & 9{,}000  & 0.62 \\
+30 & 3.40 & 24{,}500 & 7{,}800  & 16{,}700 & 0.68 \\
+36 & 3.58 & 36{,}750 & 11{,}600 & 25{,}150 & 0.68 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Per-head analysis at $K{=}20$ reveals L1H3 begins attending to $z$ at step 500---2{,}250 steps before the aggregate $\Delta_z$ onset (step 2{,}750) and 8{,}200 steps before the loss transition.
+
+\section{Hidden Progress in Weight Space}
+\label{app:displacement}
+
+We compute weight displacement $\|W(t{+}\Delta) - W(t)\|_F$ between consecutive checkpoints (every 200 steps) for $K \in \{10, 20, 36\}$ and the cosine similarity of consecutive displacement vectors to measure direction consistency~\citep{barak2022hidden, chen2024hidden}.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{outputs/paper_figures/fig_weight_displacement.pdf}
+  \caption{\textbf{Weight displacement dynamics.} (a)~Total displacement per step (log scale). (b)~Relative displacement (normalized by $\|W(t)\|$). (c)~Per-component displacement at $K{=}20$: attention spikes highest at $\tau$. (d)~Direction consistency: near-zero during plateau (random walk), snaps to ${\sim}0.8$ at transition.}
+  \label{fig:displacement-full}
+\end{figure}
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Phase-wise displacement statistics} at $K{=}20$ ($\tau = 10{,}750$).}
+\label{tab:displacement}
+\vspace{4pt}
+\small
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Phase & Displacement & Relative disp. & $\cos\theta$ \\
+\midrule
+Plateau ($t < \tau/2$) & $11.27 \pm 4.22$ & 0.128 & 0.036 \\
+Pre-transition & $9.44 \pm 0.36$ & 0.079 & $-0.179$ \\
+Post-transition ($t > \tau$) & $3.93 \pm 4.71$ & 0.030 & 0.397 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The negative direction consistency in the pre-transition window ($\cos\theta \approx -0.18$) suggests an oscillatory regime where the optimizer alternates directions before finding the descent channel.
+
+\section{Weight Norm Dynamics}
+\label{app:weight-norms}
+
+Total Frobenius norm $\|W\|_F$ across training for $K \in \{3, 5, 10, 20, 36\}$, sampled every 500 steps~\citep{gromov2024grokking}.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{outputs/paper_figures/fig_weight_norms.pdf}
+  \caption{\textbf{Weight norm dynamics.} (a)~Total norm grows monotonically; higher $K$ produces larger norms. (b)~Per-component norms at $K{=}20$: unembed shows the sharpest rise at $\tau$. (c)~Per-layer norms: Layer~1 (containing L1H3) is the only layer with non-monotonic behavior (peak then decay).}
+  \label{fig:weight-norms-full}
+\end{figure}
+
+Total weight norms grow monotonically---no global peak-and-reorganize as predicted by the deep grokking framework. However, Layer~1 (containing selector head L1H3) peaks at $\tau$ then decays, showing localized non-monotonic dynamics. Peak/init ratio scales from $1.13\times$ (K=3) to $2.53\times$ (K=36).
+
+\section{OV Circuit Spectrum}
+\label{app:spectrum}
+
+For each attention head, we compute $W_\text{OV} = W_V W_O$ and track its singular value spectrum across training~\citep{tigges2024cdt}. Effective rank is the participation ratio $(\sum \sigma_i)^2 / \sum \sigma_i^2$.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{outputs/paper_figures/fig_circuit_spectrum.pdf}
+  \caption{\textbf{OV circuit spectrum} at $K{=}20$. (a)~Effective rank heatmap; broad rank reduction at $\tau$, strongest in Layers~0 and~3. (b)~$\sigma_1/\sigma_2$: L0H0 shows an early transient spike; L1H3 remains flat. (c)~Nuclear norm: L1H3 has persistently lower nuclear norm than all other heads. (d)~L1H3 effective rank across $K$ values.}
+  \label{fig:spectrum-full}
+\end{figure}
+
+L1H3 maintains high effective rank (${\sim}26$--$28$) and low $\sigma_1/\sigma_2$ ratio (${\sim}1.05$--$1.09$) throughout training, indicating it operates as a distributed, low-norm circuit rather than crystallizing into a rank-1 projector.
+
+\section{Gradient Anatomy}
+\label{app:gradient}
+
+We analyze gradient norms from training histories across $K \in \{3, \ldots, 36\}$.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{outputs/paper_figures/fig_gradient_anatomy.pdf}
+  \caption{\textbf{Gradient anatomy.} (a)~$\|\nabla L\|^2$ shows three phases: initial transient, plateau floor, transition spike. (b)~Fisher proxy $\|\nabla L\|^2/L$ drops during plateau. (c)~Gradient waste during plateau scales with $K$. (d)~Higher LR produces smaller gradients but paradoxically longer transitions (anti-Kramers).}
+  \label{fig:gradient-full}
+\end{figure}
+
+Cumulative gradient norm during the plateau scales as $\tau^{2.14}$ ($R^2 = 0.994$). At $K{=}30$, 19.3\% of all gradient compute is spent in the plateau phase where loss barely changes. This quadratic scaling implies that the computational waste of the plateau grows disproportionately for harder problems.
+
+\section{Representation Geometry}
+\label{app:neural-collapse}
+
+We group last-layer residual stream activations by base string $B$ and track within-$B$ variance (how much representations for different $z$ values differ) and between-$B$ variance (how much $B$-group centroids differ)~\citep{rangamani2025neural}.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{outputs/paper_figures/fig_neural_collapse.pdf}
+  \caption{\textbf{Representation geometry} at $K{=}20$. (a)~Within-$B$ variance rises then slowly decays; between-$B$ variance peaks early and contracts. (b)~Variance ratio increases monotonically. (c)~Total variance peaks post-$\tau$ then decays under weight decay.}
+  \label{fig:neural-collapse-full}
+\end{figure}
+
+Traditional neural collapse predicts within-class contraction; we observe the opposite---within-$B$ variance \emph{increases} ($1.15\times$) while between-$B$ variance contracts ($0.61\times$). This is because the model must differentiate the $K$ distinct $(B, z_i)$ representations within each $B$ group, shifting capacity from inter-$B$ to intra-$B$ distinctions.
+
+\section{AdamW Timescale}
+\label{app:adamw}
+
+We test whether the composite timescale $\tau_\text{adamw} = B/(\eta\lambda D)$ from~\citet{lyu2025power} predicts $\tau_\text{trans}$.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{outputs/paper_figures/fig_adamw_timescale.pdf}
+  \caption{\textbf{AdamW timescale.} (a)~$\tau_\text{trans}$ vs.\ $\tau_\text{adamw}$ on log-log axes; the relationship is \emph{inverted} ($\tau_\text{trans} \propto \tau_\text{adamw}^{-1.14}$, $R^2 = 0.70$). (b)~Ratio $\tau_\text{trans}/\tau_\text{adamw}$ spans three orders of magnitude across $K$.}
+  \label{fig:adamw-full}
+\end{figure}
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Per-sweep regression} of $\log\tau_\text{trans}$ vs.\ $\log\tau_\text{adamw}$ (Transformer only).}
+\label{tab:adamw}
+\vspace{4pt}
+\small
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Sweep & Slope & $R^2$ & $n$ \\
+\midrule
+$K$-sweep & $-1.70$ & 0.966 & 9 \\
+BS-sweep & $-1.16$ & 0.908 & 6 \\
+LR-sweep & $-0.53$ & 0.814 & 4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+$\tau_\text{adamw}$ anti-correlates with $\tau_\text{trans}$ because task difficulty (which scales with $K$ via dataset size $D = 1000K$) dominates optimizer dynamics. The weight-decay timescale $1/(\eta\lambda) = 100{,}000$ steps is much longer than any observed transition, so weight decay acts as a slow regularizer rather than the primary clock.
+
+\section{Trajectory Forensics}
+\label{app:forensics}
+
+Near-boundary runs (those with partial convergence across seeds) raise the question of whether ``failed transitions'' exist---whether loss can drop significantly then revert to the $\log K$ plateau. We analyze all 24 near-boundary runs using a 2000-step rolling mean to separate signal from noise.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{outputs/paper_figures/fig_trajectory_forensics_smoothed.pdf}
+  \caption{\textbf{Smoothed trajectory forensics} for all near-boundary runs. Bold line: 2000-step rolling mean; light gray: raw eval (every 50 steps). Background color indicates smoothed classification. No run shows reversion to the plateau after breaching $50\%$ of $\log K$.}
+  \label{fig:forensics}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{outputs/paper_figures/fig_trajectory_zooms_smoothed.pdf}
+  \caption{\textbf{Zoom on four near-boundary runs.} All show monotonic or near-monotonic smoothed descent. $K{=}36$, $\eta{=}3{\times}10^{-3}$, $s{=}42$ (bottom left) is the most ambiguous: smoothed loss oscillates near the $50\%$ threshold with a slightly positive end slope, but never reverts above $80\%$ of $\log K$.}
+  \label{fig:forensics-zoom}
+\end{figure}
+
+Of 24 near-boundary runs: 6 converge (smoothed final ${<}\,5\%$ of $\log K$), 5 are in active descent (smoothed loss still declining at step 200k), 2 show stalled dynamics (end slope marginally positive but loss remains well below $50\%$ of $\log K$), and 11 never breach the plateau. Zero runs exhibit smoothed reversion from below $50\%$ back above $80\%$ of $\log K$. The partial-convergence zone is a slow-convergence zone: once the transition initiates, it completes given sufficient budget. This rules out ``failed transitions'' as a distinct phenomenon and supports the two-regime (fast convergence / critical slowing down) interpretation of the phase diagram.
+
+\section{Hessian Eigenvalue Tracking}
+\label{app:hessian}
+
+We track the extreme eigenvalues of the loss Hessian through training via power iteration with Hessian-vector products (50 iterations, 512-example mini-batch) for $K \in \{10, 20, 36\}$ at $\eta = 10^{-3}$.
+
+The spinodal decomposition prediction is: $\lambda_\text{min} > 0$ during the plateau (locally stable uniform solution), crossing zero at $\tau$ (solution becomes linearly unstable), and $\lambda_\text{min} < 0$ post-$\tau$. This is \textbf{falsified}: the plateau is a saddle point ($\lambda_\text{min} < 0$) throughout, and the converged solution is a genuine local minimum ($\lambda_\text{min} \geq 0$).
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{outputs/paper_figures/fig_hessian_eigenvalues.pdf}
+  \caption{\textbf{Hessian eigenvalue trajectories.} Top: $\lambda_\text{max}$ (red) and $\lambda_\text{min}$ (blue) vs.\ step. $\lambda_\text{max}$ spikes $10$--$20\times$ during the transition then decays. $\lambda_\text{min}$ is tiny-negative (${\sim}{-}0.005$) during the plateau and transition, crossing to positive post-convergence. Bottom: loss (black) and gradient norm (orange) for context. Green dashed: $\tau$.}
+  \label{fig:hessian}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{outputs/paper_figures/fig_hessian_lambda_min_zoom.pdf}
+  \caption{\textbf{$\lambda_\text{min}$ zoom around $\tau$.} Red shading: $\lambda_\text{min} < 0$ (saddle). Blue shading: $\lambda_\text{min} > 0$ (local minimum). The plateau is a saddle point with $\lambda_\text{min} \approx -0.005$, while $\lambda_\text{max} \approx 5$--$50$. The negative curvature direction exists but is ${\sim}10^3\times$ weaker than the dominant positive curvature.}
+  \label{fig:hessian-zoom}
+\end{figure}
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Hessian eigenvalues by phase} (typical values, excluding convergence outliers).}
+\label{tab:hessian}
+\vspace{4pt}
+\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Phase & $\lambda_\text{max}$ & $\lambda_\text{min}$ & $|\lambda_\text{max}/\lambda_\text{min}|$ & Geometry \\
+\midrule
+Plateau & $3$--$10$ & $-0.001$ to $-0.01$ & ${\sim}10^3$ & Saddle \\
+Transition & $30$--$80$ & $-0.002$ to $-0.02$ & ${\sim}10^4$ & Steep canyon \\
+Converged & $0.01$--$1$ & ${\sim}+0.0001$ & --- & Local min \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The mechanism is \emph{saddle-point escape}, not spinodal decomposition: the uniform-over-$K$ solution is never locally stable. Negative curvature directions exist throughout the plateau but are extremely shallow ($|\lambda_\text{min}|/\lambda_\text{max} \approx 10^{-3}$), hiding the escape route from the optimizer's isotropic random walk. The transition occurs when the walk aligns with a negative-curvature direction, triggering positive feedback (gradient coherence snap) and irreversible descent. The $10$--$20\times$ spike in $\lambda_\text{max}$ during the transition reflects the model passing through a narrow, steep loss canyon as it rapidly learns the binding circuit.
+
+\section{Signal Dilution / Coverage Test}
+\label{app:signal-dilution}
+
+A natural null hypothesis is \emph{signal dilution}: the model must learn $K \times 1000$ individual bindings and each training example teaches one, so the plateau is simply the time to accumulate coverage. We test this with four analyses.
+
+\paragraph{Test 1: Aggregate scaling.}
+If the plateau is coverage-limited, $\tau \times \bar{g}_\text{early} \propto K^\beta$ with $\beta \approx 1$. We measure $\bar{g}_\text{early} = \text{mean}\sqrt{\|\nabla L\|^2}$ over the $[0.2\tau, 0.6\tau]$ window.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{outputs/paper_figures/signal_dilution_test1.pdf}
+  \caption{\textbf{Aggregate scaling.} (a)~$\tau \times \bar{g}$ vs.\ $K$ on log-log axes: $\beta = 0.99$ ($R^2 = 0.99$). (b)~The ratio $\tau \bar{g}/K$ is approximately constant across all $K$ (mean $97.5 \pm 8.5$, CV $= 8.7\%$).}
+  \label{fig:dilution-test1}
+\end{figure}
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Signal dilution aggregate scaling.} $\tau \times \bar{g}/K$ is approximately constant.}
+\label{tab:dilution}
+\vspace{4pt}
+\small
+\begin{tabular}{@{}ccccc@{}}
+\toprule
+$K$ & $\tau$ & $\bar{g}_\text{early}$ & $\tau \times \bar{g}$ & $\tau \bar{g}/K$ \\
+\midrule
+3  & 450    & 0.616 & 277  & 92.4  \\
+5  & 800    & 0.690 & 552  & 110.4 \\
+7  & 1{,}050  & 0.591 & 620  & 88.6  \\
+10 & 1{,}850  & 0.615 & 1{,}137 & 113.7 \\
+13 & 2{,}100  & 0.530 & 1{,}113 & 85.6  \\
+17 & 3{,}300  & 0.518 & 1{,}710 & 100.6 \\
+20 & 3{,}950  & 0.488 & 1{,}928 & 96.4  \\
+25 & 5{,}250  & 0.438 & 2{,}297 & 91.9  \\
+30 & 6{,}950  & 0.431 & 2{,}993 & 99.8  \\
+36 & 8{,}750  & 0.392 & 3{,}426 & 95.2  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The aggregate scaling is perfectly consistent with coverage ($\beta = 0.99 \approx 1.0$, $R^2 = 0.988$).
+
+\paragraph{Test 2: Candidate loss onset timing.}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{outputs/paper_figures/signal_dilution_test2.pdf}
+  \caption{\textbf{Candidate loss onset.} (a)~The 95\% onset fraction (when candidate loss first drops below 95\% of $\log K$, as a fraction of $\tau$) decreases with $K$ ($r = -0.67$). (b)~Normalized loss trajectories collapse onto a similar shape when normalized by $\tau$.}
+  \label{fig:dilution-test2}
+\end{figure}
+
+Larger $K$ shows slight candidate-loss progress relatively earlier (onset at ${\sim}44\%$ of $\tau$ for $K{=}20$ vs.\ $75\%$ for $K{=}3$), consistent with coverage starting early but requiring more steps to complete.
+
+\paragraph{Test 3: Per-group learning curves (the decisive test).}
+Coverage predicts that individual $B$-groups solve independently: by $\tau/2$, approximately $30$--$50\%$ of groups should exceed $80\%$ accuracy (sigmoid learning curves). We load 20 checkpoints spanning the plateau and transition for $K{=}10$ and $K{=}20$, and evaluate 200 randomly sampled $B$-groups per checkpoint via $K$-way candidate scoring (sequence log-prob of each candidate $A$ string given the correct $z$).
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{outputs/paper_figures/per_group_learning_curves.pdf}
+  \caption{\textbf{Per-group learning curves.} Each thin line is one $B$-group's accuracy over training. The transition is a collective snap (step function), not gradual coverage (sigmoid). At $\tau/2$, zero groups exceed $80\%$; at $\tau$, a sudden bimodal split appears.}
+  \label{fig:per-group-curves}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{outputs/paper_figures/per_group_histograms.pdf}
+  \caption{\textbf{Per-group accuracy histograms} at selected checkpoints. At $25\%\tau$ and $50\%\tau$, all groups are clustered near chance ($1/K$). By $100\%\tau$, a bimodal split emerges. Coverage predicts a gradual rightward shift; instead we observe a sudden phase transition.}
+  \label{fig:per-group-hist}
+\end{figure}
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Per-group accuracy at key checkpoints.} At $\tau/2$: 0\% of groups ${\geq}80\%$ for both $K$ values.}
+\label{tab:per-group}
+\vspace{4pt}
+\small
+\begin{tabular}{@{}cccccc@{}}
+\toprule
+$K$ & Step & Frac.\ of $\tau$ & Groups ${\geq}80\%$ & Groups $100\%$ & Mean acc. \\
+\midrule
+10 & 500   & 27\% & 0.0\% & 0.0\% & 0.118 \\
+10 & 900   & 49\% & 0.0\% & 0.0\% & 0.154 \\
+10 & 1{,}400 & 76\% & 0.0\% & 0.0\% & 0.320 \\
+10 & 1{,}800 & 97\% & 31.5\% & 1.5\% & 0.645 \\
+10 & 2{,}800 & 151\% & 99.0\% & 75.0\% & 0.969 \\
+\midrule
+20 & 1{,}000 & 25\% & 0.0\% & 0.0\% & 0.062 \\
+20 & 1{,}900 & 48\% & 0.0\% & 0.0\% & 0.083 \\
+20 & 2{,}900 & 73\% & 0.0\% & 0.0\% & 0.192 \\
+20 & 3{,}800 & 96\% & 1.5\% & 0.0\% & 0.508 \\
+20 & 5{,}900 & 149\% & 87.0\% & 8.5\% & 0.870 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Coverage is decisively rejected.} At $\tau/2$, $0\%$ of $B$-groups exceed $80\%$ accuracy for both $K{=}10$ and $K{=}20$. Even at $75\%$ of $\tau$, still $0\%$. Mean accuracy does creep up uniformly during the plateau (hidden progress), but no individual group crosses the threshold until the collective snap at $\tau$.
+
+\paragraph{Test 4: First-principles $\tau$ prediction.}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{outputs/paper_figures/signal_dilution_test4.pdf}
+  \caption{\textbf{$\tau$ prediction.} $\tau_\text{pred} = C \cdot K / \bar{g}_\text{early}$ with a single fitted constant $C = 97.5$ achieves $R^2 = 0.995$. The formula works for dimensional reasons regardless of mechanism.}
+  \label{fig:dilution-test4}
+\end{figure}
+
+The single-constant formula $\tau = C \cdot K / \bar{g}_\text{early}$ fits all 10 $K$ values with $R^2 = 0.995$ and maximum fractional error $14.3\%$. However, this does not rescue coverage: a collective transition whose timescale scales with $K/\bar{g}$ (as ours does) produces the same fit. The formula captures dimensional dependence---the saddle escape time scales with information-theoretic content ($K$ bindings) divided by signal strength ($\bar{g}$)---but the escape itself is a global event that affects all groups simultaneously.
+
+
+\end{document}

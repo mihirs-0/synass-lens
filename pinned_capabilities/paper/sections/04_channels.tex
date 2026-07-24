@@ -1,0 +1,58 @@
+\section{Channels and pinning}
+\label{sec:pinning}
+
+The fork of Fig.~\ref{fig:fork} turns on \emph{where} a gradient perturbation
+enters AdamW. With $u_t=\hat m_t/(\sqrt{\hat v_t}+\epsilon)$ and
+$\tilde g_t=g_t+\xi_t$, the same $\xi_t$ routes into three arms sharing frozen
+$(\theta,m,v)$: \textbf{v-only} (clean $\hat m$, noisy $\hat v$);
+\textbf{both-channel} (both moments from $\tilde g_t$, what a minibatch does; unit
+dial calibrated to per-step minibatch gradient magnitude); \textbf{m-only} (noisy
+$\hat m$, clean $\hat v$).
+
+\paragraph{v-only is a different optimizer (finding, not caveat).}
+A second-moment noise floor inflates $\hat v_t$ (v-inflation, a construction
+check). Near a collapsed checkpoint's small-gradient states $\sqrt{\hat v_t}$ is
+set by the injected variance, so Adam's per-coordinate normalization washes out
+and $u_t$ reduces to a rescaled clean first moment---plain gradient descent. So
+v-only and both-channel are different effective optimizers, not one at two noise
+levels: the v floor overwrites Adam's normalization, as when noised-gradient Adam
+collapses onto DP-SGD unless corrected \citep{dpadambc,litramer}, consistent with
+the sign/variance reading \citep{balleshennig,kunstner}.
+
+\paragraph{Routing pins realized update-space power.}
+What the model feels is the realized power ratio $\Gamma$ (perturbed-minus-shadow
+update power over shadow power, median over steps $100$--$500$; $u^{\mathrm{sh}}$
+the clean update), not the injected magnitude. Across the dial $\Gamma$ is pinned
+by routing (Fig.~\ref{fig:pinning}): v-only $s{=}1,2,4\!\to\!\Gamma\!\approx\!1$;
+both-channel $c{=}0.5,0.6,0.7,1.0\!\to\!1.99,1.86,2.15,1.89\,(\approx2)$; m-only
+$s{=}0.02,0.05,0.1,0.25\!\to\!251,2618,7773,1{\times}10^{7}\,(\ge250)$. Each is a
+construction check: \emph{v-only} $\Gamma_v\!\approx\!1$, the floor absorbed by the
+denominator it inflates; \emph{both-channel} flat in $c$ by algebra, as Adam's
+scale invariance \citep{adam} makes $\hat m/\sqrt{\hat v}$ independent of rescaling
+$\tilde g_t$; \emph{m-only} explodes, noise in $\hat m$ with clean $\sqrt{\hat v}$
+small inflating the step \citep{amsgrad}.
+
+\paragraph{Outcome tracks $\Gamma$, not the dial.}
+Reduced-amplitude both-channel noise ($c=0.6$, $\Gamma\!\approx\!1.86$) censors
+re-solving for $\ge\!16{,}000$ steps just as the minibatch-magnitude setting does
+(Fig.~\ref{fig:fork}); that added noise impedes learning is generic (a
+construction check), the content being that fate follows $\Gamma$, not the dial.
+So gradient-space power matching is not an adequate control: interventions matched
+on injected magnitude differ by orders of magnitude in realized power---report
+$\Gamma$ or shadow-update power, not the dial.
+
+\paragraph{Derivable core and residue.}
+The pinning core---$\Gamma$ nearly dial-independent within each routing---is
+derivable post hoc from Adam's scale invariance \citep{adam} and not claimed as a
+discovery; the shipped claim is that methodological corollary plus the one
+quantity the invariance does not fix: the both-channel \emph{level}. A
+scalar-noise account predicts $\Gamma=1+a^2=1.006$ at floor $a=0.079$, but the
+measured level is $1.89$---a $\sim\!90\%$ excess. It is a turning, not an
+inflation: the realized update is smaller
+($q=\lVert u_{\mathrm{both}}\rVert/\lVert u_{\mathrm{clean}}\rVert=0.70$) yet
+anti-aligned ($\rho=\cos(u_{\mathrm{both}},u_{\mathrm{clean}})=-0.28$), and
+$\Gamma=1+q^2-2q\rho=1.894$ recovers it. We carry $\Gamma\!\approx\!2$ as a
+measurement; a sparsity account (clean update on $\sim\!0.3\%$ of coordinates,
+noise dominating the near-zero remainder where normalization amplifies it) is in
+the appendix. How this power denies recovery yet leaves the escape-direction pull
+intact is next (Fig.~\ref{fig:dissoc}).

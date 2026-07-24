@@ -1,0 +1,26 @@
+# Experiment 1 Condition C: Super-group z (template — override n_supergroups)
+# Groups are partitioned into G super-groups; each super-group shares K z tokens.
+# G=1 → shared (Condition A);  G=1000 → private (Condition B).
+defaults:
+  - ../base
+
+experiment:
+  name: "exp1_supergroup_z"
+  seed: 42
+
+data:
+  n_unique_b: 1000
+  k: 20
+  task: "bz_to_a"
+  z_sharing: "supergroup"
+  n_supergroups: 100
+
+training:
+  batch_size: 128
+  learning_rate: 1e-3
+  weight_decay: 0.01
+  max_steps: 30000
+  warmup_steps: 500
+  scheduler: "cosine"
+  checkpoint_every: 50
+  eval_every: 50

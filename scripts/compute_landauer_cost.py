@@ -31,17 +31,20 @@ import numpy as np
 import yaml
 
 
-def reconstruct_lr_schedule(peak_lr: float, warmup_steps: int, max_steps: int) -> np.ndarray:
+def reconstruct_lr_schedule(peak_lr: float, warmup_steps: int, max_steps: int,
+                            scheduler_type: str = "cosine") -> np.ndarray:
     """
     Reconstruct the learning rate at each training step.
 
     Matches src/training/trainer.py::get_lr_scheduler exactly:
-      - Linear warmup from 0 to peak_lr over warmup_steps
-      - Cosine decay from peak_lr to 0 over remaining steps
+      - "constant": flat LR = peak_lr for all steps
+      - "cosine":   linear warmup from 0 to peak_lr, then cosine decay to 0
     """
     lrs = np.zeros(max_steps)
     for step in range(max_steps):
-        if step < warmup_steps:
+        if scheduler_type == "constant":
+            lrs[step] = peak_lr
+        elif step < warmup_steps:
             lrs[step] = peak_lr * (step / warmup_steps)
         else:
             progress = (step - warmup_steps) / (max_steps - warmup_steps)
@@ -49,33 +52,104 @@ def reconstruct_lr_schedule(peak_lr: float, warmup_steps: int, max_steps: int) -
     return lrs
 
 
-def find_transition_window(steps, candidate_loss, log_k):
+def find_transition_window(steps, candidate_loss, log_k,
+                           threshold_high_frac=0.9, threshold_low_frac=0.1):
     """
     Define the phase transition window from candidate_loss trajectory.
 
-    transition_start: last step where candidate_loss > 0.9 × log(K)
-    transition_end:   first step where candidate_loss < 0.1 × log(K)
+    transition_end:   first step where candidate_loss < threshold_low_frac × log(K)
+    transition_start: last step BEFORE transition_end where
+                      candidate_loss > threshold_high_frac × log(K)
+
+    Finding t_end first prevents late instability spikes (common with
+    constant LR / no clipping) from pushing t_start past convergence.
 
     Returns (transition_start, transition_end) or (None, None) if not found.
     """
-    threshold_high = 0.9 * log_k
-    threshold_low = 0.1 * log_k
+    threshold_high = threshold_high_frac * log_k
+    threshold_low = threshold_low_frac * log_k
+
+    # Step 1: first convergence
+    transition_end = None
+    end_idx = None
+    for i, cl in enumerate(candidate_loss):
+        if cl < threshold_low:
+            transition_end = steps[i]
+            end_idx = i
+            break
+
+    if transition_end is None:
+        return None, None
+
+    # Step 2: last plateau step before convergence
+    transition_start = None
+    for i in range(end_idx):
+        if candidate_loss[i] > threshold_high:
+            transition_start = steps[i]
+
+    return transition_start, transition_end
+
+
+def find_continual_transition_window(steps, candidate_loss,
+                                     threshold_high_frac=0.9,
+                                     threshold_low_frac=0.1):
+    """
+    Transition window for continual learning experiments.
+
+    Unlike from-scratch training where the reference is log(K), here the
+    reference is the actual initial candidate loss after the distribution
+    shift. This handles partial reassignment (f < 1.0) where the initial
+    loss is approximately f * log(K), not the full log(K).
+
+    transition_start: last step where candidate_loss > 0.9 × initial_loss
+    transition_end:   first step where candidate_loss < max(0.1 × initial_loss, 0.05)
+
+    Returns (transition_start, transition_end) or (None, None) if no transition.
+    """
+    if not steps or not candidate_loss:
+        return None, None
+
+    initial_loss = candidate_loss[0]
+    if initial_loss < 0.1:
+        return None, None
+
+    threshold_high = threshold_high_frac * initial_loss
+    threshold_low = max(threshold_low_frac * initial_loss, 0.05)
 
     transition_start = None
     transition_end = None
 
-    # Last step where candidate_loss > 0.9 * log(K)
     for i, cl in enumerate(candidate_loss):
         if cl > threshold_high:
             transition_start = steps[i]
 
-    # First step where candidate_loss < 0.1 * log(K)
     for i, cl in enumerate(candidate_loss):
         if cl < threshold_low:
             transition_end = steps[i]
             break
 
     return transition_start, transition_end
+
+
+def find_plateau_onset(steps, candidate_loss, log_k):
+    """
+    Find the step where the model first reaches the metastable plateau.
+
+    The plateau corresponds to having learned the marginal P(A|B) (uniform
+    over K candidates) but not yet using z for disambiguation.  At the
+    plateau, candidate_loss ≈ log(K).
+
+    We define plateau_onset as the first step where candidate_loss drops
+    below 1.1 × log(K).  This separates the initial transient (embedding
+    warm-up, learning token statistics) from the true metastable period.
+
+    Returns the step, or None if the trajectory never reaches the plateau.
+    """
+    threshold = 1.1 * log_k
+    for i, cl in enumerate(candidate_loss):
+        if cl < threshold:
+            return steps[i]
+    return None
 
 
 def compute_dissipation(
@@ -150,36 +224,73 @@ def process_experiment(experiment_name: str, output_dir: str) -> dict:
     grad_steps = grad_data["steps"]
     grad_norm_sq = grad_data["total_grad_norm_sq"]
 
+    # Detect if this is a continual learning experiment
+    is_continual = "continual" in cfg
+
     # Load candidate eval (optional but preferred)
     cand_path = exp_dir / "candidate_eval_results.json"
     has_candidate = cand_path.exists()
     transition_start = None
     transition_end = None
 
-    if has_candidate:
+    plateau_onset = None
+
+    # For continual experiments, also try training_history.json which has
+    # new_candidate_loss tracked at higher frequency
+    history_path = exp_dir / "training_history.json"
+    has_history = history_path.exists()
+
+    if is_continual and has_history:
+        with open(history_path, "r") as f:
+            history = json.load(f)
+        hist_steps = history.get("steps", [])
+        hist_new_cand = history.get("new_candidate_loss", [])
+
+        if hist_steps and hist_new_cand:
+            transition_start, transition_end = find_continual_transition_window(
+                hist_steps, hist_new_cand
+            )
+            print(f"  [Continual] Transition window (from history): "
+                  f"{transition_start} -> {transition_end}")
+            print(f"  [Continual] Initial candidate_loss: {hist_new_cand[0]:.4f}")
+
+    if transition_start is None and has_candidate:
         with open(cand_path, "r") as f:
             cand_data = json.load(f)
 
         cand_steps = cand_data["steps"]
         cand_loss = cand_data["candidate_loss"]
 
-        transition_start, transition_end = find_transition_window(
-            cand_steps, cand_loss, log_k
-        )
-        print(f"  Transition window (from candidate_loss): {transition_start} -> {transition_end}")
-    else:
+        if is_continual:
+            transition_start, transition_end = find_continual_transition_window(
+                cand_steps, cand_loss
+            )
+            print(f"  [Continual] Transition window (from candidate_eval): "
+                  f"{transition_start} -> {transition_end}")
+        else:
+            transition_start, transition_end = find_transition_window(
+                cand_steps, cand_loss, log_k
+            )
+            plateau_onset = find_plateau_onset(cand_steps, cand_loss, log_k)
+            print(f"  Plateau onset: {plateau_onset}")
+            print(f"  Transition window (from candidate_loss): "
+                  f"{transition_start} -> {transition_end}")
+
+    if transition_start is None and not is_continual:
         # Fallback: use binding_onset_step from gradient_norm_results
         onset = grad_data.get("binding_onset_step")
         if onset is not None:
             transition_start = onset
-            # Rough estimate: transition ends ~1000 steps after onset
             transition_end = min(onset + 1000, grad_steps[-1])
-            print(f"  Transition window (fallback from binding_onset): {transition_start} -> {transition_end}")
+            print(f"  Transition window (fallback from binding_onset): "
+                  f"{transition_start} -> {transition_end}")
         else:
             print("  WARNING: No transition window found!")
 
     # Reconstruct LR schedule
-    lr_schedule = reconstruct_lr_schedule(peak_lr, warmup_steps, max_steps)
+    scheduler_type = cfg["training"].get("scheduler", "cosine")
+    lr_schedule = reconstruct_lr_schedule(peak_lr, warmup_steps, max_steps,
+                                          scheduler_type=scheduler_type)
 
     # Compute dissipation
     steps, Q_cum, dissipation = compute_dissipation(grad_steps, grad_norm_sq, lr_schedule)
@@ -225,6 +336,13 @@ def process_experiment(experiment_name: str, output_dir: str) -> dict:
         notes.append("transition window from binding_onset fallback (no candidate_eval)")
     note = "; ".join(notes) if notes else ""
 
+    # Plateau duration: time spent in the metastable state, excluding the
+    # initial transient where the model is still learning basic token stats.
+    if plateau_onset is not None and transition_start is not None:
+        plateau_duration = transition_start - plateau_onset
+    else:
+        plateau_duration = None
+
     result = {
         "name": experiment_name,
         "K": k,
@@ -235,9 +353,11 @@ def process_experiment(experiment_name: str, output_dir: str) -> dict:
         "T_eff_peak": T_eff_peak,
         "warmup_steps": warmup_steps,
         "max_steps": max_steps,
+        "plateau_onset": plateau_onset,
         "transition_start": transition_start,
         "transition_end": transition_end,
         "transition_duration": transition_duration,
+        "plateau_duration": plateau_duration,
         "Q_transition": Q_transition,
         "Q_total": Q_total,
         "Q_plateau": Q_plateau,
@@ -247,12 +367,24 @@ def process_experiment(experiment_name: str, output_dir: str) -> dict:
         "peak_S_step": peak_S_step,
         "Q_transition_over_logK": round(Q_transition / log_k, 6) if Q_transition is not None else None,
         "Q_transition_over_log2K": round(Q_transition / log2_k, 6) if Q_transition is not None else None,
+        "is_continual": is_continual,
         "note": note,
         # Full trajectories for plotting
         "Q_trajectory_steps": steps.tolist(),
         "Q_trajectory": Q_cum.tolist(),
         "dissipation_per_interval": dissipation.tolist(),
     }
+
+    if is_continual:
+        continual_cfg = cfg["continual"]
+        result["continual"] = {
+            "base_experiment": continual_cfg.get("base_experiment"),
+            "variant": continual_cfg.get("variant"),
+            "fraction": continual_cfg.get("fraction"),
+            "reassign_seed": continual_cfg.get("reassign_seed"),
+            "original_k": continual_cfg.get("original_k"),
+            "divergence": continual_cfg.get("divergence", {}),
+        }
 
     return result
 
@@ -319,6 +451,125 @@ def print_summary_table(experiments: list):
     print("=" * 80)
 
 
+def run_threshold_robustness(experiments_names, output_dir):
+    """
+    Run threshold sensitivity analysis: compute Q_transition for multiple
+    threshold pairs and report slope c and R² for each.
+
+    Threshold pairs tested: (0.9, 0.1), (0.85, 0.15), (0.80, 0.20)
+    """
+    threshold_pairs = [
+        (0.9, 0.1),
+        (0.85, 0.15),
+        (0.80, 0.20),
+    ]
+
+    print()
+    print("=" * 80)
+    print("Threshold Robustness Analysis")
+    print("=" * 80)
+    print()
+
+    robustness_results = []
+
+    for hi, lo in threshold_pairs:
+        label = f"({hi:.2f}, {lo:.2f})"
+        ks = []
+        q_trans_values = []
+
+        for exp_name in experiments_names:
+            exp_dir = Path(output_dir) / exp_name
+            config_path = exp_dir / "config.yaml"
+            if not config_path.exists():
+                continue
+
+            with open(config_path, "r") as f:
+                cfg = yaml.safe_load(f)
+
+            k = int(cfg["data"]["k"])
+            log_k = math.log(k)
+            peak_lr = float(cfg["training"]["learning_rate"])
+            warmup_steps = int(cfg["training"].get("warmup_steps", 500))
+            max_steps = int(cfg["training"].get("max_steps", 10000))
+            scheduler_type = cfg["training"].get("scheduler", "cosine")
+
+            grad_path = exp_dir / "gradient_norm_results.json"
+            cand_path = exp_dir / "candidate_eval_results.json"
+            if not grad_path.exists() or not cand_path.exists():
+                continue
+
+            with open(grad_path, "r") as f:
+                grad_data = json.load(f)
+            with open(cand_path, "r") as f:
+                cand_data = json.load(f)
+
+            t_start, t_end = find_transition_window(
+                cand_data["steps"], cand_data["candidate_loss"], log_k,
+                threshold_high_frac=hi, threshold_low_frac=lo,
+            )
+            if t_start is None or t_end is None:
+                continue
+
+            lr_schedule = reconstruct_lr_schedule(peak_lr, warmup_steps, max_steps,
+                                                  scheduler_type=scheduler_type)
+            steps, Q_cum, _ = compute_dissipation(
+                grad_data["steps"], grad_data["total_grad_norm_sq"], lr_schedule
+            )
+
+            Q_at_start = float(np.interp(t_start, steps, Q_cum))
+            Q_at_end = float(np.interp(t_end, steps, Q_cum))
+            q_t = Q_at_end - Q_at_start
+
+            ks.append(k)
+            q_trans_values.append(q_t)
+
+        if len(ks) < 2:
+            print(f"  Threshold {label}: insufficient data ({len(ks)} points)")
+            continue
+
+        log_ks = np.log(np.array(ks, dtype=float))
+        q_arr = np.array(q_trans_values)
+        coeffs = np.polyfit(log_ks, q_arr, 1)
+        slope, intercept = coeffs
+        predicted = np.polyval(coeffs, log_ks)
+        ss_res = np.sum((q_arr - predicted) ** 2)
+        ss_tot = np.sum((q_arr - np.mean(q_arr)) ** 2)
+        r_sq = 1 - ss_res / ss_tot if ss_tot > 0 else 0
+
+        print(f"  Threshold {label}: slope c = {slope:.6f}, R² = {r_sq:.4f}  "
+              f"({len(ks)} K values)")
+        robustness_results.append({
+            "threshold_high": hi,
+            "threshold_low": lo,
+            "slope": round(slope, 6),
+            "intercept": round(intercept, 6),
+            "R2": round(r_sq, 4),
+            "n_points": len(ks),
+            "K_values": ks,
+            "Q_transition_values": [round(q, 6) for q in q_trans_values],
+        })
+
+    if len(robustness_results) >= 2:
+        slopes = [r["slope"] for r in robustness_results]
+        mean_slope = np.mean(slopes)
+        max_dev = max(abs(s - mean_slope) / mean_slope for s in slopes) * 100
+        print(f"\n  Mean slope: {mean_slope:.6f}")
+        print(f"  Max deviation from mean: {max_dev:.1f}%")
+        if max_dev < 15:
+            print("  -> Results are ROBUST to threshold choice.")
+        else:
+            print(f"  -> Moderate sensitivity to threshold choice ({max_dev:.1f}% spread).")
+
+    # Save
+    rob_path = Path(output_dir) / "threshold_robustness.json"
+    with open(rob_path, "w") as f:
+        json.dump(robustness_results, f, indent=2)
+    print(f"\n  Saved to: {rob_path}")
+    print()
+
+    return robustness_results
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Compute cumulative dissipation integral for Landauer test"
@@ -335,6 +586,11 @@ def main():
         type=str,
         default="outputs",
         help="Base output directory",
+    )
+    parser.add_argument(
+        "--threshold-robustness",
+        action="store_true",
+        help="Run threshold sensitivity analysis with multiple threshold pairs",
     )
     args = parser.parse_args()
 
@@ -361,6 +617,10 @@ def main():
 
     # Print summary
     print_summary_table(results)
+
+    # Threshold robustness
+    if args.threshold_robustness:
+        run_threshold_robustness(args.experiments, args.output_dir)
 
 
 if __name__ == "__main__":
